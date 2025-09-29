@@ -102,6 +102,7 @@ const createSupportState = (): SupportSessionState => ({
 
 const createModerationPlansState = (): ModerationPlansSessionState => ({
   threads: {},
+  edits: {},
 });
 
 const USER_ROLES: readonly UserRole[] = ['guest', 'client', 'executor', 'moderator'];

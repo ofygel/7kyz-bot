@@ -240,8 +240,16 @@ export interface ModerationPlanWizardState {
   comment?: string;
 }
 
+export interface ModerationPlanEditState {
+  planId: number;
+  chatId: number;
+  messageId: number;
+  threadId?: number;
+}
+
 export interface ModerationPlansSessionState {
   threads: Record<string, ModerationPlanWizardState | undefined>;
+  edits: Record<string, ModerationPlanEditState | undefined>;
 }
 
 export type SupportRequestStatus = 'idle' | 'awaiting_message';
