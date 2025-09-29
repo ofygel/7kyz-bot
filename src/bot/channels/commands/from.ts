@@ -316,6 +316,7 @@ const renderPhoneStep = async (
   await ui.step(ctx, {
     id: buildWizardStepId(threadKey, 'phone'),
     text: lines.join('\n'),
+    messageThreadId: state.threadId,
   });
 };
 
@@ -338,6 +339,7 @@ const renderNicknameStep = async (
   await ui.step(ctx, {
     id: buildWizardStepId(threadKey, 'nickname'),
     text: lines.join('\n'),
+    messageThreadId: state.threadId,
   });
 };
 
@@ -361,6 +363,7 @@ const renderPlanStep = async (
     id: buildWizardStepId(threadKey, 'plan'),
     text: lines.join('\n'),
     keyboard: buildPlanChoiceKeyboard(),
+    messageThreadId: state.threadId,
   });
 };
 
@@ -389,6 +392,7 @@ const renderDetailsStep = async (
   await ui.step(ctx, {
     id: buildWizardStepId(threadKey, 'details'),
     text: lines.join('\n'),
+    messageThreadId: state.threadId,
   });
 };
 
@@ -435,6 +439,7 @@ const renderSummaryStep = async (
     id: buildWizardStepId(threadKey, 'summary'),
     text: lines.join('\n'),
     keyboard,
+    messageThreadId: state.threadId,
   });
 };
 
@@ -663,6 +668,7 @@ const handleSummaryDecision = async (
     await ui.step(ctx, {
       id: buildWizardStepId(threadKey, 'summary'),
       text: 'Создание плана отменено.',
+      messageThreadId: state.threadId,
     });
     setWizardState(ctx, threadKey, undefined);
     if (typeof ctx.answerCbQuery === 'function') {
@@ -713,6 +719,7 @@ const handleSummaryDecision = async (
     await ui.step(ctx, {
       id: buildWizardStepId(threadKey, 'summary'),
       text: ['План сохранён ✅', buildPlanSummary(plan)].join('\n\n'),
+      messageThreadId: state.threadId,
     });
     setWizardState(ctx, threadKey, undefined);
 

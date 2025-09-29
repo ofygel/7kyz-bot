@@ -145,6 +145,8 @@ export interface UiStepOptions extends UiTrackOptions {
   homeLabel?: string;
   /** Whether the step should be removed when navigating home. */
   cleanup?: boolean;
+  /** Identifier of the forum topic where the step should be posted. */
+  messageThreadId?: number;
 }
 
 export interface UiStepResult {
@@ -222,6 +224,9 @@ export const ui = {
         : replyMarkup,
       parse_mode: options.parseMode,
       link_preview_options: options.linkPreviewOptions,
+      ...(options.messageThreadId !== undefined
+        ? { message_thread_id: options.messageThreadId }
+        : {}),
     };
 
     let message;
