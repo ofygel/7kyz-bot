@@ -452,7 +452,17 @@ const renderSummaryStep = async (
 
   state.startAt = state.startAt ?? new Date();
 
-  const input = buildPlanInputFromState(ctx, state);
+  const chatId = resolvePlanChatId(ctx);
+  if (chatId === null) {
+    try {
+      await ctx.reply(PLAN_CHAT_ID_REPLY_MESSAGE);
+    } catch (error) {
+      logger.debug({ err: error }, 'Failed to notify about missing plan chat id');
+    }
+    return;
+  }
+
+  const input = buildPlanInputFromState(ctx, state, { chatId });
   if (!input) {
     return;
   }
@@ -546,17 +556,41 @@ const parseWizardDetailsInput = (value: string): WizardDetailsResult => {
   return { skip: false, comment: trimmed } satisfies WizardDetailsResult;
 };
 
+const PLAN_CHAT_ID_ALERT_MESSAGE = 'Не удалось определить чат для публикации плана';
+const PLAN_CHAT_ID_REPLY_MESSAGE = `${PLAN_CHAT_ID_ALERT_MESSAGE}. Проверьте настройки канала.`;
+
+const resolvePlanChatId = (ctx: BotContext): number | null => {
+  const candidate = ctx.chat?.id ?? config.channels.bindVerifyChannelId;
+  if (typeof candidate !== 'number' || !Number.isFinite(candidate) || candidate === 0) {
+    return null;
+  }
+
+  return candidate;
+};
+
+interface BuildPlanInputOptions {
+  chatId?: number | null;
+}
+
 const buildPlanInputFromState = (
   ctx: BotContext,
   state: ModerationPlanWizardState,
+  options: BuildPlanInputOptions = {},
 ): ExecutorPlanInsertInput | null => {
   if (!state.phone || !state.planChoice) {
     return null;
   }
 
+  const chatId =
+    typeof options.chatId === 'number' && Number.isFinite(options.chatId) && options.chatId !== 0
+      ? options.chatId
+      : resolvePlanChatId(ctx);
+  if (chatId === null) {
+    return null;
+  }
+
   const startAt = state.startAt ?? new Date();
   const endsAt = computePlanEndsAt(state.planChoice, startAt);
-  const chatId = ctx.chat?.id ?? config.channels.bindVerifyChannelId ?? 0;
 
   return {
     chatId,
@@ -750,7 +784,25 @@ const handleSummaryDecision = async (
   }
 
   state.startAt = state.startAt ?? new Date();
-  const input = buildPlanInputFromState(ctx, state);
+  const chatId = resolvePlanChatId(ctx);
+  if (chatId === null) {
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery(PLAN_CHAT_ID_ALERT_MESSAGE, { show_alert: true });
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer summary callback without chat id');
+      }
+    } else {
+      try {
+        await ctx.reply(PLAN_CHAT_ID_REPLY_MESSAGE);
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to notify about missing plan chat id');
+      }
+    }
+    return;
+  }
+
+  const input = buildPlanInputFromState(ctx, state, { chatId });
   if (!input) {
     if (typeof ctx.answerCbQuery === 'function') {
       try {

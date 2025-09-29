@@ -129,7 +129,7 @@ void (async () => {
   } as unknown as BotContext['session'];
 
   const replies: string[] = [];
-  const callbackAnswers: string[] = [];
+  const callbackAnswers: Array<{ text?: string; options?: unknown }> = [];
   const sentMessages: Array<{ chatId: number; text: string; options: unknown }> = [];
 
   const ctx = {
@@ -146,8 +146,8 @@ void (async () => {
       replies.push(text);
       return { message_id: replies.length };
     },
-    answerCbQuery: async (text?: string) => {
-      callbackAnswers.push(text ?? '');
+    answerCbQuery: async (text?: string, options?: unknown) => {
+      callbackAnswers.push({ text, options });
     },
   } as unknown as BotContext;
 
@@ -184,7 +184,7 @@ void (async () => {
   assert.equal(wizardState?.planChoice, '15', 'Выбор тарифа должен сохраняться');
   assert.equal(wizardState?.step, 'details', 'После выбора тарифа запрашиваются дополнительные данные');
   assert.ok(
-    callbackAnswers.includes('Выбран тариф: План на 15 дней'),
+    callbackAnswers.some((entry) => entry.text === 'Выбран тариф: План на 15 дней'),
     'Ответ на callback должен подтверждать выбор тарифа',
   );
 
@@ -255,7 +255,11 @@ void (async () => {
     'В запланированном плане должен сохраняться выбранный тариф',
   );
 
-  assert.equal(callbackAnswers.at(-1), 'План сохранён', 'Подтверждение должно сообщать об успешном создании');
+  assert.equal(
+    callbackAnswers.at(-1)?.text,
+    'План сохранён',
+    'Подтверждение должно сообщать об успешном создании',
+  );
   assert.equal(
     session.moderationPlans.threads[threadKey],
     undefined,
@@ -370,6 +374,89 @@ void (async () => {
   );
 
   console.log('form command wizard channel_post flow test: OK');
+
+  const missingChatThreadId = 2024;
+  const missingChatThreadKey = __testing.getThreadKey(missingChatThreadId);
+
+  const missingChatSession = {
+    ephemeralMessages: [],
+    isAuthenticated: false,
+    safeMode: false,
+    isDegraded: false,
+    awaitingPhone: false,
+    authSnapshot: {} as Record<string, unknown>,
+    executor: {} as Record<string, unknown>,
+    client: {} as Record<string, unknown>,
+    ui: { steps: {}, homeActions: [] },
+    moderationPlans: {
+      threads: {
+        [missingChatThreadKey]: {
+          step: 'summary',
+          threadId: missingChatThreadId,
+          phone: '+77001234567',
+          planChoice: '7',
+          startAt: new Date(),
+        },
+      },
+    },
+    support: { status: 'idle' },
+    onboarding: { active: false },
+  } as unknown as BotContext['session'];
+
+  const missingChatReplies: string[] = [];
+  const missingChatCallbackAnswers: Array<{ text?: string; options?: unknown }> = [];
+  const missingChatSentMessages: Array<{ chatId: number }> = [];
+
+  const missingChatCtx = {
+    session: missingChatSession,
+    auth: {} as Record<string, unknown>,
+    telegram: {
+      sendMessage: async (chatId: number) => {
+        missingChatSentMessages.push({ chatId });
+        return { message_id: missingChatSentMessages.length };
+      },
+    },
+    reply: async (text: string) => {
+      missingChatReplies.push(text);
+      return { message_id: missingChatReplies.length };
+    },
+    answerCbQuery: async (text?: string, options?: unknown) => {
+      missingChatCallbackAnswers.push({ text, options });
+    },
+  } as unknown as BotContext;
+
+  const mutationCountBefore = processedMutations.length;
+
+  await __testing.handleSummaryDecision(missingChatCtx, missingChatThreadKey, 'confirm');
+
+  assert.equal(
+    processedMutations.length,
+    mutationCountBefore,
+    'При отсутствии chatId мутация плана не должна выполняться',
+  );
+  assert.equal(
+    missingChatSentMessages.length,
+    0,
+    'При отсутствии chatId карточка плана не должна отправляться',
+  );
+
+  const missingChatAnswer = missingChatCallbackAnswers.find(
+    (entry) => entry.text === 'Не удалось определить чат для публикации плана',
+  );
+  assert.ok(
+    missingChatAnswer,
+    'При отсутствии chatId должен возвращаться ответ о невозможности определить чат',
+  );
+  assert.deepEqual(
+    missingChatAnswer?.options,
+    { show_alert: true },
+    'Ответ на callback должен отображать alert',
+  );
+  assert.equal(
+    missingChatReplies.length,
+    0,
+    'При наличии answerCbQuery не должно быть дополнительного ответа через reply',
+  );
 })();
 
 void (async () => {
