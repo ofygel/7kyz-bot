@@ -14,7 +14,7 @@ import { CLIENT_COMMANDS } from '../../commands/sets';
 import { setChatCommands } from '../../services/commands';
 import type { BotContext } from '../../types';
 import { presentRolePick } from '../../commands/start';
-import { ensureExecutorState, EXECUTOR_SUBSCRIPTION_ACTION } from '../executor/menu';
+import { ensureExecutorState } from '../executor/menu';
 import { reportRoleSet, toUserIdentity } from '../../services/reports';
 import { promptClientSupport } from './support';
 import { askCity, getCityFromContext, CITY_ACTION_PATTERN } from '../common/citySelect';
@@ -45,7 +45,6 @@ const buildClientProfileOptions = () => ({
   backAction: CLIENT_MENU_ACTION,
   homeAction: CLIENT_MENU_ACTION,
   changeCityAction: CLIENT_MENU_CITY_SELECT_ACTION,
-  subscriptionAction: EXECUTOR_SUBSCRIPTION_ACTION,
   supportAction: CLIENT_MENU_SUPPORT_ACTION,
 });
 export const logClientMenuClick = async (
