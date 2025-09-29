@@ -25,10 +25,11 @@ const queueModulePath = requireFn.resolve('../src/infra/executorPlanQueue.ts');
 
 interface RecordedMutation {
   type: string;
-  payload: ExecutorPlanInsertInput;
+  payload: unknown;
 }
 
 const processedMutations: RecordedMutation[] = [];
+let latestPlan: ExecutorPlanRecord | null = null;
 
 (requireFn.cache as Record<string, NodeModule | undefined>)[queueModulePath] = {
   id: queueModulePath,
@@ -37,33 +38,61 @@ const processedMutations: RecordedMutation[] = [];
   exports: {
     enqueueExecutorPlanMutation: async () => {},
     flushExecutorPlanMutations: async () => {},
-    processExecutorPlanMutation: async (mutation: { type: string; payload: ExecutorPlanInsertInput }) => {
+    processExecutorPlanMutation: async (mutation: { type: string; payload: unknown }) => {
       processedMutations.push({ type: mutation.type, payload: mutation.payload });
-      if (mutation.type !== 'create') {
-        return null;
+      if (mutation.type === 'create') {
+        const payload = mutation.payload as ExecutorPlanInsertInput;
+        const plan: ExecutorPlanRecord = {
+          id: 777,
+          chatId: payload.chatId,
+          threadId: payload.threadId,
+          phone: payload.phone,
+          nickname: payload.nickname,
+          planChoice: payload.planChoice,
+          startAt: payload.startAt,
+          endsAt: payload.endsAt ?? payload.startAt,
+          comment: payload.comment,
+          status: 'active',
+          muted: false,
+          reminderIndex: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } satisfies ExecutorPlanRecord;
+
+        latestPlan = plan;
+        return { type: 'created', plan } as const;
       }
 
-      const payload = mutation.payload;
-      const plan: ExecutorPlanRecord = {
-        id: 777,
-        chatId: payload.chatId,
-        threadId: payload.threadId,
-        phone: payload.phone,
-        nickname: payload.nickname,
-        planChoice: payload.planChoice,
-        startAt: payload.startAt,
-        endsAt: payload.endsAt ?? payload.startAt,
-        comment: payload.comment,
-        status: 'active',
-        muted: false,
-        reminderIndex: 0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } satisfies ExecutorPlanRecord;
+      if (mutation.type === 'comment') {
+        if (!latestPlan || latestPlan.id !== (mutation.payload as { id: number }).id) {
+          return null;
+        }
 
-      return { type: 'created', plan } as const;
+        const nextComment = (mutation.payload as { comment?: string }).comment;
+        latestPlan = {
+          ...latestPlan,
+          comment: nextComment ?? undefined,
+          updatedAt: new Date(),
+        } satisfies ExecutorPlanRecord;
+
+        return { type: 'updated', plan: latestPlan } as const;
+      }
+
+      return null;
     },
     onExecutorPlanMutation: () => {},
+  },
+} as unknown as NodeModule;
+
+const executorPlansModulePath = requireFn.resolve('../src/db/executorPlans.ts');
+
+(requireFn.cache as Record<string, NodeModule | undefined>)[executorPlansModulePath] = {
+  id: executorPlansModulePath,
+  filename: executorPlansModulePath,
+  loaded: true,
+  exports: {
+    getExecutorPlanById: async (id: number) =>
+      latestPlan && latestPlan.id === id ? latestPlan : null,
   },
 } as unknown as NodeModule;
 
@@ -123,7 +152,7 @@ void (async () => {
     executor: {} as Record<string, unknown>,
     client: {} as Record<string, unknown>,
     ui: { steps: {}, homeActions: [] },
-    moderationPlans: { threads: {} },
+    moderationPlans: { threads: {}, edits: {} },
     support: { status: 'idle' },
     onboarding: { active: false },
   } as unknown as BotContext['session'];
@@ -216,34 +245,33 @@ void (async () => {
 
   assert.equal(processedMutations.length, 1, 'Создание плана должно вызывать мутацию очереди');
   assert.equal(processedMutations[0].type, 'create', 'Создание плана должно выполнять create-мутацию');
+  const firstMutationPayload = processedMutations[0].payload as ExecutorPlanInsertInput;
   assert.equal(
-    processedMutations[0].payload.phone,
+    firstMutationPayload.phone,
     '+77001234567',
     'В мутацию должен передаваться нормализованный телефон',
   );
   assert.equal(
-    processedMutations[0].payload.planChoice,
+    firstMutationPayload.planChoice,
     '15',
     'В мутации должен использоваться выбранный тариф',
   );
   assert.ok(
-    processedMutations[0].payload.endsAt,
+    firstMutationPayload.endsAt,
     'В мутации должна передаваться вычисленная дата окончания',
   );
   assert.equal(
-    processedMutations[0].payload.endsAt?.toISOString(),
-    new Date(
-      processedMutations[0].payload.startAt.getTime() + 15 * 24 * 60 * 60 * 1000,
-    ).toISOString(),
+    firstMutationPayload.endsAt?.toISOString(),
+    new Date(firstMutationPayload.startAt.getTime() + 15 * 24 * 60 * 60 * 1000).toISOString(),
     'Дата окончания должна вычисляться на основе тарифа',
   );
   assert.equal(
-    processedMutations[0].payload.comment,
+    firstMutationPayload.comment,
     'Комментарий',
     'В мутации должен передаваться введённый комментарий',
   );
   assert.equal(
-    processedMutations[0].payload.threadId,
+    firstMutationPayload.threadId,
     threadId,
     'Мутация должна помнить исходный идентификатор ветки',
   );
@@ -296,6 +324,128 @@ void (async () => {
 
   console.log('form command wizard flow test: OK');
 
+  if (!latestPlan) {
+    throw new Error('latestPlan is not initialised');
+  }
+
+  const planForEdit = latestPlan as ExecutorPlanRecord;
+
+  const editSession = {
+    ephemeralMessages: [],
+    isAuthenticated: false,
+    safeMode: false,
+    isDegraded: false,
+    awaitingPhone: false,
+    authSnapshot: {} as Record<string, unknown>,
+    executor: {} as Record<string, unknown>,
+    client: {} as Record<string, unknown>,
+    ui: { steps: {}, homeActions: [] },
+    moderationPlans: { threads: {}, edits: {} },
+    support: { status: 'idle' },
+    onboarding: { active: false },
+  } as unknown as BotContext['session'];
+
+  const editCallbackAnswers: Array<{ text?: string; options?: unknown }> = [];
+  const editedMessages: Array<{ chatId: number; messageId: number; text: string; options: unknown }> = [];
+
+  const editThreadId = planForEdit.threadId ?? threadId;
+  const editThreadKey = __testing.getThreadKey(editThreadId);
+
+  const editCtx = {
+    chat: { id: planForEdit.chatId, type: 'supergroup' },
+    session: editSession,
+    auth: {} as Record<string, unknown>,
+    telegram: {
+      editMessageText: async (
+        chatId: number,
+        messageId: number,
+        _inlineMessageId: unknown,
+        text: string,
+        options: unknown,
+      ) => {
+        editedMessages.push({ chatId, messageId, text, options });
+        return { message_id: messageId };
+      },
+    },
+    reply: async () => ({ message_id: 1 }),
+    answerCbQuery: async (text?: string, options?: unknown) => {
+      editCallbackAnswers.push({ text, options });
+    },
+  } as unknown as BotContext;
+
+  (editCtx as { callbackQuery?: unknown }).callbackQuery = {
+    id: 'edit',
+    message: {
+      message_id: 901,
+      message_thread_id: editThreadId,
+      chat: { id: planForEdit.chatId },
+    },
+  };
+
+  const initialEditStepCount = stepLog.length;
+
+  await __testing.handleEditCallback(editCtx, planForEdit.id);
+
+  const editState = editSession.moderationPlans.edits[editThreadKey];
+  assert.ok(editState, 'После нажатия ✏️ должно сохраняться состояние редактирования');
+  assert.equal(editState?.planId, planForEdit.id, 'Состояние редактирования должно помнить план');
+  assert.equal(editState?.messageId, 901, 'Состояние редактирования должно запоминать сообщение карточки');
+
+  const editPromptStep = stepLog
+    .slice(initialEditStepCount)
+    .find((step) => step.id === `moderation:form:${editThreadKey}:edit`);
+  assert.ok(editPromptStep, 'Редактирование должно открывать отдельный шаг');
+  assert.ok(
+    editPromptStep?.text.includes('Отправьте новый текст следующим сообщением.'),
+    'Шаг редактирования должен содержать инструкцию по вводу комментария',
+  );
+  assert.equal(
+    editCallbackAnswers.at(-1)?.text,
+    'Введите новый комментарий',
+    'Ответ на callback должен приглашать ввести новый комментарий',
+  );
+
+  delete (editCtx as { callbackQuery?: unknown }).callbackQuery;
+  (editCtx as { message?: unknown }).message = {
+    message_thread_id: editThreadId,
+    text: 'Новый комментарий',
+  };
+
+  const handledEdit = await __testing.handlePlanEditTextMessage(editCtx);
+  assert.equal(handledEdit, true, 'Текст после открытия шага должен обрабатываться редактированием');
+
+  const lastMutation = processedMutations.at(-1);
+  assert.equal(lastMutation?.type, 'comment', 'Редактирование должно отправлять мутацию комментария');
+
+  assert.equal(
+    editSession.moderationPlans.edits[editThreadKey],
+    undefined,
+    'После успешного редактирования состояние должно очищаться',
+  );
+  assert.ok(editedMessages.length > 0, 'Редактирование должно обновлять карточку плана');
+  const editedCard = editedMessages.at(-1);
+  assert.equal(editedCard?.chatId, planForEdit.chatId, 'Обновление карточки должно выполняться в исходном чате');
+  assert.ok(
+    editedCard?.text.includes('Новый комментарий'),
+    'Текст карточки после обновления должен содержать новый комментарий',
+  );
+
+  const editSteps = stepLog.filter((step) => step.id === `moderation:form:${editThreadKey}:edit`);
+  const lastEditStep = editSteps.at(-1);
+  assert.ok(lastEditStep?.text.includes('Комментарий обновлён ✅'), 'Шаг редактирования должен подтверждать обновление');
+  assert.ok(
+    lastEditStep?.text.includes('Новый комментарий: Новый комментарий'),
+    'Шаг редактирования должен отображать новый комментарий',
+  );
+
+  assert.equal(
+    (latestPlan as ExecutorPlanRecord | null)?.comment,
+    'Новый комментарий',
+    'Стабы очереди должны обновлять сохранённый план',
+  );
+
+  console.log('form command edit callback flow test: OK');
+
   const channelThreadId = 777;
   const channelThreadKey = __testing.getThreadKey(channelThreadId);
 
@@ -309,7 +459,7 @@ void (async () => {
     executor: {} as Record<string, unknown>,
     client: {} as Record<string, unknown>,
     ui: { steps: {}, homeActions: [] },
-    moderationPlans: { threads: {} },
+    moderationPlans: { threads: {}, edits: {} },
     support: { status: 'idle' },
     onboarding: { active: false },
   } as unknown as BotContext['session'];
@@ -398,6 +548,7 @@ void (async () => {
           startAt: new Date(),
         },
       },
+      edits: {},
     },
     support: { status: 'idle' },
     onboarding: { active: false },
@@ -483,6 +634,7 @@ void (async () => {
           phone: '+77001234567',
         },
       },
+      edits: {},
     },
     support: { status: 'idle' },
     onboarding: { active: false },

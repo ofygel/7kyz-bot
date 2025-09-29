@@ -1,7 +1,11 @@
 import { Telegraf } from 'telegraf';
 import type { BotCommand } from 'telegraf/typings/core/types/typegram';
 
-import type { BotContext, ModerationPlanWizardState } from '../../types';
+import type {
+  BotContext,
+  ModerationPlanEditState,
+  ModerationPlanWizardState,
+} from '../../types';
 import { config, logger } from '../../../config';
 import { getPlanChoiceDurationDays, getPlanChoiceLabel } from '../../../domain/executorPlans';
 import type {
@@ -224,12 +228,16 @@ const formatPlanChoiceLabel = (choice: ExecutorPlanChoice): string =>
 
 const ensureModerationPlansState = (ctx: BotContext): void => {
   if (!ctx.session.moderationPlans) {
-    ctx.session.moderationPlans = { threads: {} };
+    ctx.session.moderationPlans = { threads: {}, edits: {} };
     return;
   }
 
   if (!ctx.session.moderationPlans.threads) {
     ctx.session.moderationPlans.threads = {};
+  }
+
+  if (!ctx.session.moderationPlans.edits) {
+    ctx.session.moderationPlans.edits = {};
   }
 };
 
@@ -289,8 +297,33 @@ const setWizardState = (
   ctx.session.moderationPlans.threads[threadKey] = state;
 };
 
+const getEditState = (
+  ctx: BotContext,
+  threadKey: string,
+): ModerationPlanEditState | undefined => {
+  ensureModerationPlansState(ctx);
+  return ctx.session.moderationPlans.edits[threadKey];
+};
+
+const setEditState = (
+  ctx: BotContext,
+  threadKey: string,
+  state: ModerationPlanEditState | undefined,
+): void => {
+  ensureModerationPlansState(ctx);
+  if (!state) {
+    delete ctx.session.moderationPlans.edits[threadKey];
+    return;
+  }
+
+  ctx.session.moderationPlans.edits[threadKey] = state;
+};
+
 const buildWizardStepId = (threadKey: string, step: string): string =>
   `moderation:form:${threadKey}:${step}`;
+
+const buildEditStepId = (threadKey: string): string =>
+  buildWizardStepId(threadKey, 'edit');
 
 const getWizardStepIds = (threadKey: string): string[] => [
   buildWizardStepId(threadKey, 'phone'),
@@ -556,6 +589,20 @@ const parseWizardDetailsInput = (value: string): WizardDetailsResult => {
   return { skip: false, comment: trimmed } satisfies WizardDetailsResult;
 };
 
+const normalisePlanCommentInput = (value: string): string | undefined => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (lower === '-' || lower === '—' || lower === 'нет') {
+    return undefined;
+  }
+
+  return trimmed;
+};
+
 const PLAN_CHAT_ID_ALERT_MESSAGE = 'Не удалось определить чат для публикации плана';
 const PLAN_CHAT_ID_REPLY_MESSAGE = `${PLAN_CHAT_ID_ALERT_MESSAGE}. Проверьте настройки канала.`;
 
@@ -692,6 +739,79 @@ const handleWizardTextMessage = async (ctx: BotContext): Promise<boolean> => {
     default:
       return false;
   }
+};
+
+const handlePlanEditTextMessage = async (ctx: BotContext): Promise<boolean> => {
+  const message = ctx.message;
+  if (!message || typeof message !== 'object' || !('text' in message)) {
+    return false;
+  }
+
+  const text = typeof message.text === 'string' ? message.text : undefined;
+  if (!text) {
+    return false;
+  }
+
+  const threadId = getThreadIdFromContext(ctx);
+  const threadKey = getThreadKey(threadId);
+  const editState = getEditState(ctx, threadKey);
+  if (!editState) {
+    return false;
+  }
+
+  const stepId = buildEditStepId(threadKey);
+  const comment = normalisePlanCommentInput(text);
+
+  const mutation: ExecutorPlanMutation = {
+    type: 'comment',
+    payload: { id: editState.planId, comment: comment ?? undefined },
+  };
+
+  await handleMutationWithFallback(ctx, mutation, async (outcome) => {
+    if (!outcome || outcome.type !== 'updated') {
+      await ui.step(ctx, {
+        id: stepId,
+        text: 'Не удалось обновить комментарий. Попробуйте ещё раз.',
+        messageThreadId: editState.threadId,
+      });
+      return;
+    }
+
+    const plan = outcome.plan;
+    let cardUpdated = false;
+    try {
+      await ctx.telegram.editMessageText(
+        plan.chatId,
+        editState.messageId,
+        undefined,
+        buildPlanSummary(plan),
+        { reply_markup: buildExecutorPlanActionKeyboard(plan) },
+      );
+      cardUpdated = true;
+    } catch (error) {
+      logger.error(
+        { err: error, planId: plan.id, messageId: editState.messageId },
+        'Failed to update executor plan card after comment edit',
+      );
+    }
+
+    const lines = ['Комментарий обновлён ✅'];
+    lines.push('', plan.comment ? `Новый комментарий: ${plan.comment}` : 'Комментарий удалён.');
+    if (!cardUpdated) {
+      lines.push('', '⚠️ Не удалось автоматически обновить карточку. Проверьте сообщение вручную.');
+    }
+    lines.push('', 'Чтобы изменить комментарий снова, нажмите ✏️ на карточке.');
+
+    await ui.step(ctx, {
+      id: stepId,
+      text: lines.join('\n'),
+      messageThreadId: editState.threadId,
+    });
+
+    setEditState(ctx, threadKey, undefined);
+  });
+
+  return true;
 };
 
 const handlePlanSelection = async (
@@ -1171,8 +1291,80 @@ const handleToggleMuteCallback = async (ctx: BotContext, planId: number): Promis
 };
 
 const handleEditCallback = async (ctx: BotContext, planId: number): Promise<void> => {
-  await ctx.answerCbQuery('Используйте /extend <ID> comment <текст> для редактирования.');
-  await ctx.reply(`Чтобы обновить комментарий, выполните команду:\n/extend ${planId} comment <новый текст>`);
+  await flushExecutorPlanMutations();
+
+  let plan: ExecutorPlanRecord | null = null;
+  try {
+    plan = await getExecutorPlanById(planId);
+  } catch (error) {
+    logger.error({ err: error, planId }, 'Failed to load plan for comment edit');
+  }
+
+  if (!plan) {
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('План не найден', { show_alert: true });
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer edit callback without plan');
+      }
+    }
+    return;
+  }
+
+  const callbackMessage =
+    ctx.callbackQuery && 'message' in ctx.callbackQuery
+      ? ctx.callbackQuery.message
+      : undefined;
+  const messageId =
+    callbackMessage &&
+    typeof callbackMessage === 'object' &&
+    'message_id' in callbackMessage &&
+    typeof (callbackMessage as { message_id?: unknown }).message_id === 'number'
+      ? (callbackMessage as { message_id: number }).message_id
+      : undefined;
+
+  if (typeof messageId !== 'number') {
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('Сообщение недоступно', { show_alert: true });
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer edit callback without message');
+      }
+    }
+    return;
+  }
+
+  const threadId = getThreadIdFromContext(ctx);
+  const threadKey = getThreadKey(threadId);
+  setEditState(ctx, threadKey, {
+    planId: plan.id,
+    chatId: plan.chatId,
+    messageId,
+    threadId,
+  });
+
+  const lines = [`✏️ Редактирование комментария для плана №${plan.id}.`];
+  if (plan.comment) {
+    lines.push('', `Текущий комментарий: ${plan.comment}`);
+  } else {
+    lines.push('', 'Комментарий пока не указан.');
+  }
+  lines.push('', 'Отправьте новый текст следующим сообщением.');
+  lines.push('Чтобы удалить комментарий, отправьте «-».');
+
+  await ui.step(ctx, {
+    id: buildEditStepId(threadKey),
+    text: lines.join('\n'),
+    messageThreadId: threadId,
+  });
+
+  if (typeof ctx.answerCbQuery === 'function') {
+    try {
+      await ctx.answerCbQuery('Введите новый комментарий');
+    } catch (error) {
+      logger.debug({ err: error }, 'Failed to answer edit callback');
+    }
+  }
 };
 
 export const registerFormCommand = (bot: Telegraf<BotContext>): void => {
@@ -1185,6 +1377,11 @@ export const registerFormCommand = (bot: Telegraf<BotContext>): void => {
   });
 
   bot.on('text', async (ctx, next) => {
+    const editHandled = await handlePlanEditTextMessage(ctx);
+    if (editHandled) {
+      return;
+    }
+
     const handled = await handleWizardTextMessage(ctx);
     if (handled) {
       return;
@@ -1313,6 +1510,8 @@ export const __testing = {
   handleWizardTextMessage,
   handlePlanSelection,
   handleSummaryDecision,
+  handlePlanEditTextMessage,
+  handleEditCallback,
   buildPlanInputFromState,
   parseArgs,
 };
