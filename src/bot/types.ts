@@ -111,6 +111,11 @@ export interface ExecutorUploadedPhoto {
   fileUniqueId?: string;
 }
 
+export interface ExecutorVerificationMediaGroupProgress {
+  photoUniqueIds: string[];
+  progressNotified: boolean;
+}
+
 export type ExecutorVerificationStatus = 'idle' | 'collecting' | 'submitted';
 
 export interface ExecutorVerificationModerationState {
@@ -127,6 +132,7 @@ export interface ExecutorVerificationRoleState {
   submittedAt?: number;
   moderation?: ExecutorVerificationModerationState;
   lastReminderAt?: number;
+  processedMediaGroups: Record<string, ExecutorVerificationMediaGroupProgress>;
 }
 
 export type ExecutorSubscriptionStatus =

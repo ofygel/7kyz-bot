@@ -505,6 +505,8 @@ const handleIncomingPhoto = async (
     return false;
   }
 
+  const mediaGroupId = 'media_group_id' in message ? message.media_group_id : undefined;
+
   if (verification.status === 'submitted') {
     await ui.step(ctx, {
       id: VERIFICATION_ALREADY_ON_REVIEW_STEP_ID,
@@ -555,8 +557,27 @@ const handleIncomingPhoto = async (
   const initialPhotos = verification.uploadedPhotos;
   const uploadedBefore = initialPhotos.length;
   const messageId = message.message_id;
+  if (!verification.processedMediaGroups || typeof verification.processedMediaGroups !== 'object') {
+    verification.processedMediaGroups = {};
+  }
+  const processedGroups = verification.processedMediaGroups;
+  let mediaGroupState =
+    mediaGroupId !== undefined ? processedGroups[mediaGroupId] : undefined;
+  if (mediaGroupId !== undefined && !mediaGroupState) {
+    mediaGroupState = { photoUniqueIds: [], progressNotified: false };
+    processedGroups[mediaGroupId] = mediaGroupState;
+  }
 
   const isDuplicate = (): boolean => {
+    if (mediaGroupId !== undefined && mediaGroupState) {
+      if (
+        typeof bestPhotoUniqueId === 'string' &&
+        mediaGroupState.photoUniqueIds.includes(bestPhotoUniqueId)
+      ) {
+        return true;
+      }
+    }
+
     const currentPhotos = verification.uploadedPhotos;
     const duplicateByUniqueId =
       typeof bestPhotoUniqueId === 'string' &&
@@ -569,21 +590,25 @@ const handleIncomingPhoto = async (
   };
 
   if (isDuplicate()) {
-    await ui.step(ctx, {
-      id: VERIFICATION_PROGRESS_STEP_ID,
-      text: buildPhotoProgressText(uploadedBefore, verification.requiredPhotos),
-      cleanup: true,
-    });
+    if (mediaGroupId === undefined) {
+      await ui.step(ctx, {
+        id: VERIFICATION_PROGRESS_STEP_ID,
+        text: buildPhotoProgressText(uploadedBefore, verification.requiredPhotos),
+        cleanup: true,
+      });
+    }
     await showExecutorMenu(ctx, { skipAccessCheck: true });
     return true;
   }
 
   if (verification.uploadedPhotos !== initialPhotos && isDuplicate()) {
-    await ui.step(ctx, {
-      id: VERIFICATION_PROGRESS_STEP_ID,
-      text: buildPhotoProgressText(uploadedBefore, verification.requiredPhotos),
-      cleanup: true,
-    });
+    if (mediaGroupId === undefined) {
+      await ui.step(ctx, {
+        id: VERIFICATION_PROGRESS_STEP_ID,
+        text: buildPhotoProgressText(uploadedBefore, verification.requiredPhotos),
+        cleanup: true,
+      });
+    }
     await showExecutorMenu(ctx, { skipAccessCheck: true });
     return true;
   }
@@ -597,13 +622,37 @@ const handleIncomingPhoto = async (
   updatedPhotos.sort((left, right) => left.messageId - right.messageId);
   verification.uploadedPhotos = updatedPhotos;
 
+  if (mediaGroupId !== undefined && mediaGroupState) {
+    if (
+      typeof bestPhotoUniqueId === 'string' &&
+      !mediaGroupState.photoUniqueIds.includes(bestPhotoUniqueId)
+    ) {
+      mediaGroupState.photoUniqueIds.push(bestPhotoUniqueId);
+    }
+    mediaGroupState.progressNotified = false;
+  }
+
   const uploaded = verification.uploadedPhotos.length;
   const required = verification.requiredPhotos;
-  await ui.step(ctx, {
-    id: VERIFICATION_PROGRESS_STEP_ID,
-    text: buildPhotoProgressText(uploaded, required),
-    cleanup: true,
-  });
+
+  let shouldSendProgress = true;
+  if (mediaGroupId !== undefined && mediaGroupState) {
+    if (uploaded >= required && mediaGroupState.progressNotified !== true) {
+      mediaGroupState.progressNotified = true;
+    } else if (uploaded < required) {
+      shouldSendProgress = false;
+    } else {
+      shouldSendProgress = false;
+    }
+  }
+
+  if (shouldSendProgress) {
+    await ui.step(ctx, {
+      id: VERIFICATION_PROGRESS_STEP_ID,
+      text: buildPhotoProgressText(uploaded, required),
+      cleanup: true,
+    });
+  }
 
   if (uploaded >= required) {
     await submitForModeration(ctx, state);
@@ -654,6 +703,11 @@ const handleTextDuringCollection = async (ctx: BotContext, next: () => Promise<v
   if (promptResult) {
     verification.lastReminderAt = Date.now();
   }
+};
+
+
+export const __private__ = {
+  handleIncomingPhoto,
 };
 
 
