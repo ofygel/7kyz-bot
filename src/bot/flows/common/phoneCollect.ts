@@ -2,6 +2,7 @@ import { Markup, type MiddlewareFn } from 'telegraf';
 import type { ReplyKeyboardMarkup } from 'telegraf/typings/core/types/typegram';
 
 import { logger } from '../../../config';
+import { pool } from '../../../db/client';
 import { setUserBlockedStatus } from '../../../db/users';
 import {
   reportPhoneVerified,

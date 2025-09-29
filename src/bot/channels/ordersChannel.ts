@@ -662,7 +662,7 @@ const processOrderAction = async (
   decision: 'accept' | 'decline',
   actor: OrderActionActor,
 ): Promise<OrderActionOutcome> => {
-  const actorId = actor.id;
+  let actorId = actor.id;
 
   if (decision === 'decline' && typeof actorId === 'number') {
     if (hasOrderBeenDismissedBy(orderId, actorId)) {
@@ -675,7 +675,9 @@ const processOrderAction = async (
       throw new Error('Missing moderator identifier for order claim');
     }
 
-    const access = await getExecutorOrderAccess(actorId);
+    const numericActorId = actorId;
+
+    const access = await getExecutorOrderAccess(numericActorId);
     if (!access || !access.hasPhone) {
       return { outcome: 'phone_required' } as const;
     }
@@ -683,6 +685,10 @@ const processOrderAction = async (
     if (access.isBlocked) {
       return { outcome: 'executor_blocked' } as const;
     }
+
+    // Reassign to narrowed variant for subsequent usage inside the
+    // transaction block.
+    actorId = numericActorId;
   }
 
   const result = await withTx(
@@ -708,7 +714,7 @@ const processOrderAction = async (
         if (executorKind === 'driver') {
           const { rows: userRows } = await client.query<{ tg_id: number }>(
             `SELECT tg_id FROM users WHERE tg_id = $1 FOR UPDATE`,
-            [actorId],
+            [actorId!],
           );
 
           if (userRows.length === 0) {
@@ -722,7 +728,7 @@ const processOrderAction = async (
               WHERE claimed_by = $1 AND status = 'claimed'
               LIMIT 1
             `,
-            [actorId],
+            [actorId!],
           );
 
           if (activeOrders.length > 0) {
@@ -739,7 +745,7 @@ const processOrderAction = async (
           return { outcome: 'city_mismatch', order } as const;
         }
 
-        const updated = await tryClaimOrder(client, orderId, actorId, actorCity);
+        const updated = await tryClaimOrder(client, orderId, actorId!, actorCity);
         if (!updated) {
           return { outcome: 'already_processed', order } as const;
         }
