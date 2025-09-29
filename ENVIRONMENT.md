@@ -1,6 +1,6 @@
 # Environment configuration
 
-Freedom Bot relies on a handful of environment variables. The sections below outline
+The service relies on a handful of environment variables. The sections below outline
 which values are required and how optional settings can be used to fine‑tune the bot.
 
 ## Required variables
@@ -38,7 +38,7 @@ are missing or blank.
 
 ## Session cache
 
-- `REDIS_URL` – Optional Redis connection string. When provided, Freedom Bot
+- `REDIS_URL` – Optional Redis connection string. When provided, the bot
   mirrors the per-user session payload in Redis to shield conversations from
   short-lived PostgreSQL outages.
 - `SESSION_TTL_SECONDS` – Session cache expiration in seconds. Defaults to
@@ -98,7 +98,7 @@ Omitting any of them keeps the built-in defaults.
 ## Tariff hints
 
 The following values describe default tariff parameters used in external automations.
-They are optional but must be defined together when used. When present, Freedom Bot
+They are optional but must be defined together when used. When present, the service
 applies them to taxi price quotes shown to customers and executors using the
 `base + per_km * distance + per_min * eta` formula. Delivery quotes continue to rely
 on the configured delivery tariffs. The ETA is approximated with a 5-minute pickup

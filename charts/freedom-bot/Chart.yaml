@@ -2,4 +2,4 @@ apiVersion: v2
 name: freedom-bot
 version: 0.1.0
 appVersion: "1.0.0"
-description: Freedom Bot deployment chart
+description: Telegram bot deployment chart
