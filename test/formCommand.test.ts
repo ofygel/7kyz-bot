@@ -355,3 +355,23 @@ void (async () => {
 
   console.log('form command wizard channel_post flow test: OK');
 })();
+
+void (async () => {
+  const { __testing } = await import('../src/bot/channels/commands/form');
+
+  const ctx = {
+    channelPost: {
+      text: '/block 123 Причина блокировки',
+    },
+  } as unknown as BotContext;
+
+  const args = __testing.parseArgs(ctx);
+
+  assert.deepEqual(
+    args,
+    ['123', 'Причина', 'блокировки'],
+    'parseArgs должен корректно разбирать аргументы из channel_post',
+  );
+
+  console.log('form command parseArgs channel_post test: OK');
+})();
