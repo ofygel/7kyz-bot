@@ -984,12 +984,15 @@ const handleDeleteCommand = async (ctx: BotContext, args: string[]): Promise<voi
 };
 
 const parseArgs = (ctx: BotContext): string[] => {
-  const message = ctx.message;
-  if (!message || !('text' in message) || !message.text) {
+  const messageText =
+    (ctx.message && 'text' in ctx.message ? ctx.message.text : undefined) ??
+    (ctx.channelPost && 'text' in ctx.channelPost ? ctx.channelPost.text : undefined);
+
+  if (!messageText) {
     return [];
   }
 
-  const text = message.text.trim();
+  const text = messageText.trim();
   const parts = text.split(/\s+/u);
   return parts.slice(1);
 };
@@ -1209,4 +1212,5 @@ export const __testing = {
   handlePlanSelection,
   handleSummaryDecision,
   buildPlanInputFromState,
+  parseArgs,
 };
