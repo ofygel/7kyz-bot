@@ -205,6 +205,14 @@ const getThreadIdFromContext = (ctx: BotContext): number | undefined => {
     }
   }
 
+  const channelPost = ctx.channelPost;
+  if (channelPost && typeof channelPost === 'object' && 'message_thread_id' in channelPost) {
+    const threadId = (channelPost as { message_thread_id?: number }).message_thread_id;
+    if (typeof threadId === 'number') {
+      return threadId;
+    }
+  }
+
   const callbackMessage =
     ctx.callbackQuery && 'message' in ctx.callbackQuery
       ? ctx.callbackQuery.message
@@ -1194,6 +1202,7 @@ export const __testing = {
   parseWizardDetailsInput,
   formatPlanChoiceLabel,
   getThreadKey,
+  getThreadIdFromContext,
   startWizard,
   handleWizardTextMessage,
   handlePlanSelection,
