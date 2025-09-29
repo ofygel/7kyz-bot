@@ -609,7 +609,7 @@ const getNominatimConfig = (): NominatimConfig => {
     : undefined;
 
   const userAgent =
-    getFirstDefinedEnv('NOMINATIM_USER_AGENT', 'GEOCODER_NOMINATIM_USER_AGENT') ?? 'freedom-bot/1.1.0';
+    getFirstDefinedEnv('NOMINATIM_USER_AGENT', 'GEOCODER_NOMINATIM_USER_AGENT') ?? 'service-bot/1.1.0';
 
   const referer = getFirstDefinedEnv('NOMINATIM_REFERER', 'GEOCODER_NOMINATIM_REFERER');
   const language = getFirstDefinedEnv('NOMINATIM_ACCEPT_LANGUAGE', 'GEOCODER_NOMINATIM_LANGUAGE');

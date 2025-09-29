@@ -1,8 +1,8 @@
-{{- define "freedom-bot.name" -}}
+{{- define "service-bot.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "freedom-bot.fullname" -}}
+{{- define "service-bot.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
@@ -11,6 +11,6 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "freedom-bot.chart" -}}
+{{- define "service-bot.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
