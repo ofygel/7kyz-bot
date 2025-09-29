@@ -10,6 +10,7 @@ export interface ExecutorPlanRecord {
   nickname?: string;
   planChoice: ExecutorPlanChoice;
   startAt: Date;
+  endsAt: Date;
   comment?: string;
   status: ExecutorPlanStatus;
   muted: boolean;
@@ -26,5 +27,6 @@ export interface ExecutorPlanInsertInput {
   nickname?: string;
   planChoice: ExecutorPlanChoice;
   startAt: Date;
+  endsAt?: Date;
   comment?: string;
 }

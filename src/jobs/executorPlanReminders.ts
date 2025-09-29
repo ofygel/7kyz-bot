@@ -50,7 +50,7 @@ const computeReminderTime = (
     return null;
   }
 
-  const target = new Date(plan.startAt.getTime() + offset * 60 * 60 * 1000);
+  const target = new Date(plan.endsAt.getTime() + offset * 60 * 60 * 1000);
   return target;
 };
 
@@ -231,7 +231,7 @@ const ensureQueue = (): boolean => {
   });
   worker = new Worker<ReminderJobData>(
     QUEUE_NAME,
-    async (job) => {
+    async (job: { data: ReminderJobData; id?: string | number | null }) => {
       try {
         await handleReminderJob(job.data);
       } catch (error) {
@@ -245,7 +245,7 @@ const ensureQueue = (): boolean => {
     },
   );
 
-  worker.on('error', (error) => {
+  worker.on('error', (error: unknown) => {
     logger.error({ err: error }, 'Executor plan reminder worker error');
   });
 
@@ -268,6 +268,10 @@ const initialisePlanSchedules = async (): Promise<void> => {
   for (const plan of plans) {
     await scheduleReminder(plan);
   }
+};
+
+export const __testing = {
+  computeReminderTime,
 };
 
 export const startExecutorPlanReminderService = (

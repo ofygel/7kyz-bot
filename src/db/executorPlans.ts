@@ -18,6 +18,7 @@ interface ExecutorPlanRow {
   nickname: string | null;
   plan_choice: string;
   start_at: Date | string;
+  ends_at: Date | string | null;
   comment: string | null;
   status: string;
   muted: boolean;
@@ -29,8 +30,19 @@ interface ExecutorPlanRow {
 
 const PLAN_CHOICES: ExecutorPlanChoice[] = ['7', '15', '30'];
 const PLAN_CHOICE_SET = new Set(PLAN_CHOICES);
+const PLAN_CHOICE_DURATIONS: Record<ExecutorPlanChoice, number> = {
+  '7': 7,
+  '15': 15,
+  '30': 30,
+};
 const PLAN_STATUSES: ExecutorPlanStatus[] = ['active', 'blocked', 'completed', 'cancelled'];
 const PLAN_STATUS_SET = new Set(PLAN_STATUSES);
+
+const getPlanChoiceDuration = (choice: ExecutorPlanChoice): number =>
+  PLAN_CHOICE_DURATIONS[choice] ?? PLAN_CHOICE_DURATIONS['7'];
+
+const computeEndsAt = (startAt: Date, durationDays: number): Date =>
+  new Date(startAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
 
 const parseDate = (value: Date | string | null): Date | undefined => {
   if (!value) {
@@ -79,10 +91,13 @@ const normalisePlanStatus = (value: string): ExecutorPlanStatus => {
 
 const mapRow = (row: ExecutorPlanRow): ExecutorPlanRecord => {
   const startAt = parseDate(row.start_at) ?? new Date();
+  const planChoice = normalisePlanChoice(row.plan_choice);
   const createdAt = parseDate(row.created_at) ?? new Date();
   const updatedAt = parseDate(row.updated_at) ?? createdAt;
   const threadId = row.thread_id ?? undefined;
   const reminderLastSent = parseDate(row.reminder_last_sent);
+  const endsAt =
+    parseDate(row.ends_at) ?? computeEndsAt(startAt, getPlanChoiceDuration(planChoice));
 
   return {
     id: row.id,
@@ -90,8 +105,9 @@ const mapRow = (row: ExecutorPlanRow): ExecutorPlanRecord => {
     threadId,
     phone: row.phone,
     nickname: row.nickname ?? undefined,
-    planChoice: normalisePlanChoice(row.plan_choice),
+    planChoice,
     startAt,
+    endsAt,
     comment: row.comment ?? undefined,
     status: normalisePlanStatus(row.status),
     muted: Boolean(row.muted),
@@ -112,6 +128,8 @@ export const createExecutorPlan = async (
 ): Promise<ExecutorPlanRecord> => {
   const db = getClient(client);
   const now = new Date();
+  const endsAt =
+    input.endsAt ?? computeEndsAt(input.startAt, getPlanChoiceDuration(input.planChoice));
 
   const { rows } = await db.query<ExecutorPlanRow>(
     `
@@ -122,6 +140,7 @@ export const createExecutorPlan = async (
         nickname,
         plan_choice,
         start_at,
+        ends_at,
         comment,
         status,
         muted,
@@ -139,6 +158,7 @@ export const createExecutorPlan = async (
       input.nickname ?? null,
       input.planChoice,
       input.startAt,
+      endsAt,
       input.comment ?? null,
       now,
     ],
@@ -247,7 +267,8 @@ export const extendExecutorPlanByDays = async (
   const { rows } = await db.query<ExecutorPlanRow>(
     `
       UPDATE executor_plans
-      SET start_at = start_at + ($2 || ' days')::interval,
+      SET start_at = COALESCE(ends_at, start_at),
+          ends_at = start_at + ($2 || ' days')::interval,
           reminder_index = 0,
           reminder_last_sent = NULL,
           status = 'active',
@@ -273,7 +294,8 @@ export const setExecutorPlanStartDate = async (
   const { rows } = await db.query<ExecutorPlanRow>(
     `
       UPDATE executor_plans
-      SET start_at = $2,
+      SET ends_at = $2 + (ends_at - start_at),
+          start_at = $2,
           reminder_index = 0,
           reminder_last_sent = NULL,
           updated_at = $3

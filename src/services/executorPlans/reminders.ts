@@ -18,12 +18,6 @@ const formatDateTime = (value: Date): string =>
     timeZone: config.timezone,
   }).format(value);
 
-const formatDate = (value: Date): string =>
-  new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'medium',
-    timeZone: config.timezone,
-  }).format(value);
-
 export const formatPlanChoice = (plan: ExecutorPlanRecord): string => {
   switch (plan.planChoice) {
     case '7':
@@ -61,6 +55,7 @@ export const buildPlanSummary = (plan: ExecutorPlanRecord): string => {
   }
   lines.push(`Тариф: ${formatPlanChoice(plan)}`);
   lines.push(`Старт: ${formatDateTime(plan.startAt)}`);
+  lines.push(`Окончание: ${formatDateTime(plan.endsAt)}`);
   lines.push(`Статус: ${formatPlanStatus(plan)}${plan.muted ? ' (уведомления отключены)' : ''}`);
   lines.push(`Текущий этап напоминаний: ${REMINDER_STAGE_LABELS[plan.reminderIndex] ?? 'завершён'}`);
   if (plan.comment) {
@@ -81,7 +76,8 @@ export const buildReminderMessage = (
     lines.push(`Ник/ID: ${plan.nickname}`);
   }
   lines.push(`План: ${formatPlanChoice(plan)}`);
-  lines.push(`Старт: ${formatDate(plan.startAt)}`);
+  lines.push(`Старт: ${formatDateTime(plan.startAt)}`);
+  lines.push(`Окончание: ${formatDateTime(plan.endsAt)}`);
   if (plan.comment) {
     lines.push('', `Комментарий: ${plan.comment}`);
   }
