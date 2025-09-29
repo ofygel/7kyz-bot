@@ -357,7 +357,7 @@ const sendReminder = async (
     });
   }
 
-  await showExecutorMenu(ctx, { skipAccessCheck: true });
+  await showExecutorMenu(ctx, { promptRoleSelection: false });
 
   const subscription = ctx.session.executor.subscription;
   subscription.lastReminderAt = now.getTime();

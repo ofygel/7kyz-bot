@@ -1,186 +1,70 @@
 import { Markup, Telegraf } from 'telegraf';
 
-import { config, logger } from '../../../config';
-import { getChannelBinding } from '../../channels/bindings';
-import { findActiveSubscriptionForUser } from '../../../db/subscriptions';
-import type { BotContext, ExecutorFlowState } from '../../types';
+import type { BotContext } from '../../types';
 import { ui } from '../../ui';
 import {
   EXECUTOR_MENU_ACTION,
   EXECUTOR_MENU_TEXT_LABELS,
   EXECUTOR_ORDERS_ACTION,
-  requireExecutorRole,
+  ensureExecutorState,
 } from './menu';
-import { copy, getExecutorRoleCopy } from '../../copy';
-import { registerExecutorJobs, processOrdersRequest as processJobsRequest } from './jobs';
+import { getExecutorRoleCopy } from '../../copy';
+import { presentRolePick } from '../../commands/start';
 
-const ORDERS_LINK_STEP_ID = 'executor:orders:link';
+const ORDERS_INFO_STEP_ID = 'executor:orders:info';
+const SUPPORT_USERNAME = 'support_seven';
+const SUPPORT_LINK = `https://t.me/${SUPPORT_USERNAME}`;
 
 export const EXECUTOR_SUBSCRIPTION_REQUIRED_MESSAGE =
-  'Подписка на канал заказов не активна. Оформите подписку через меню, чтобы получить доступ.';
+  'Подписка на канал заказов оформляется через поддержку. Напишите @support_seven, чтобы получить инструкции и ссылку.';
 
-const formatDateTime = (value: Date): string =>
-  new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-    timeZone: config.timezone,
-  }).format(value);
-
-type InviteSource = 'generated' | 'cached' | 'config' | 'none';
-
-interface InviteResolutionResult {
-  link?: string;
-  expiresAt?: Date;
-  source: InviteSource;
-}
-
-export const resolveInviteLink = async (
-  ctx: BotContext,
-  state: ExecutorFlowState,
-): Promise<InviteResolutionResult> => {
-  requireExecutorRole(state);
-  const subscription = state.subscription;
-  const cachedLink = subscription.lastInviteLink;
-  const fallbackInvite = config.subscriptions.payment.driversChannelInvite;
-
-  const binding = await getChannelBinding('drivers');
-  if (!binding) {
-    if (cachedLink) {
-      logger.warn(
-        { telegramId: ctx.auth.user.telegramId },
-        'Drivers channel binding missing, using cached invite link',
-      );
-      return { link: cachedLink, source: 'cached' } satisfies InviteResolutionResult;
-    }
-
-    if (fallbackInvite) {
-      logger.error(
-        { telegramId: ctx.auth.user.telegramId },
-        'Drivers channel binding missing, using configured invite link',
-      );
-      return { link: fallbackInvite, source: 'config' } satisfies InviteResolutionResult;
-    }
-
-    logger.error(
-      { telegramId: ctx.auth.user.telegramId },
-      'Drivers channel binding missing and no invite fallback available',
-    );
-    return { source: 'none' } satisfies InviteResolutionResult;
+const buildOrdersInfoText = (ctx: BotContext): string => {
+  const state = ensureExecutorState(ctx);
+  const role = state.role;
+  if (!role) {
+    return 'Выберите роль исполнителя, чтобы получить доступ к подсказкам по заказам.';
   }
 
-  let expiresAt: Date | undefined;
-  try {
-    const activeSubscription = await findActiveSubscriptionForUser(
-      binding.chatId,
-      ctx.auth.user.telegramId,
-    );
-    expiresAt = activeSubscription?.expiresAt ?? activeSubscription?.nextBillingAt ?? undefined;
-  } catch (error) {
-    logger.error(
-      { err: error, chatId: binding.chatId, telegramId: ctx.auth.user.telegramId },
-      'Failed to resolve active subscription before issuing invite link',
-    );
-
-    const failureMarker = new Date(0);
-    return { expiresAt: failureMarker, source: 'none' } satisfies InviteResolutionResult;
-  }
-
-  try {
-    const options: { name: string; member_limit?: number; expire_date?: number } = {
-      name: `Manual invite ${ctx.auth.user.telegramId}`,
-      member_limit: 1,
-    };
-    if (expiresAt) {
-      const expireSeconds = Math.floor(expiresAt.getTime() / 1000);
-      const nowSeconds = Math.floor(Date.now() / 1000);
-      if (expireSeconds > nowSeconds) {
-        options.expire_date = expireSeconds;
-      }
-    }
-
-    const invite = await ctx.telegram.createChatInviteLink(binding.chatId, options);
-    if (invite.invite_link) {
-      return {
-        link: invite.invite_link,
-        expiresAt,
-        source: 'generated',
-      } satisfies InviteResolutionResult;
-    }
-  } catch (error) {
-    logger.error(
-      { err: error, chatId: binding.chatId, telegramId: ctx.auth.user.telegramId },
-      'Failed to create invite link for executor request',
-    );
-  }
-
-  if (cachedLink) {
-    logger.warn(
-      { telegramId: ctx.auth.user.telegramId },
-      'Falling back to cached invite link after generation failure',
-    );
-    return { link: cachedLink, source: 'cached' } satisfies InviteResolutionResult;
-  }
-
-  if (fallbackInvite) {
-    logger.warn(
-      { telegramId: ctx.auth.user.telegramId },
-      'Falling back to configured invite link after generation failure',
-    );
-    return { link: fallbackInvite, source: 'config' } satisfies InviteResolutionResult;
-  }
-
-  return { source: 'none' } satisfies InviteResolutionResult;
-};
-
-const buildInviteMessage = (
-  state: ExecutorFlowState,
-  expiresAt?: Date,
-): string => {
-  const role = requireExecutorRole(state);
   const copy = getExecutorRoleCopy(role);
-  const lines = [
-    `Нажмите кнопку ниже, чтобы перейти в канал ${copy.pluralGenitive}.`,
-    expiresAt ? `Ссылка действует до ${formatDateTime(expiresAt)}.` : undefined,
-    'Если ссылка перестанет работать, запросите новую через это меню или свяжитесь с поддержкой.',
-  ].filter((value): value is string => Boolean(value && value.trim().length > 0));
-
-  return lines.join('\n');
+  return [
+    `${copy.emoji} Доступ к заказам`,
+    '',
+    'Чтобы попасть в канал с заказами, напишите @support_seven. Команда оформит подписку, проверит оплату и пришлёт актуальную ссылку.',
+    '',
+    'После подключения следите за обновлениями канала и уточняйте любые вопросы у поддержки.',
+  ].join('\n');
 };
 
-export const sendInviteLink = async (
-  ctx: BotContext,
-  state: ExecutorFlowState,
-  link: string,
-  expiresAt?: Date,
-): Promise<void> => {
-  requireExecutorRole(state);
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.url('Перейти к заказам', link)],
+const buildOrdersKeyboard = () =>
+  Markup.inlineKeyboard([
+    [Markup.button.url('Написать в поддержку', SUPPORT_LINK)],
+    [Markup.button.callback('⬅️ Назад в меню', EXECUTOR_MENU_ACTION)],
   ]).reply_markup;
 
+export const showExecutorOrdersInfo = async (ctx: BotContext): Promise<void> => {
+  if (ctx.chat?.type !== 'private') {
+    return;
+  }
+
+  const state = ensureExecutorState(ctx);
+  if (!state.role) {
+    await presentRolePick(ctx, { withHint: true });
+    return;
+  }
+
   await ui.step(ctx, {
-    id: ORDERS_LINK_STEP_ID,
-    text: buildInviteMessage(state, expiresAt),
-    keyboard,
+    id: ORDERS_INFO_STEP_ID,
+    text: buildOrdersInfoText(ctx),
+    keyboard: buildOrdersKeyboard(),
+    cleanup: true,
     homeAction: EXECUTOR_MENU_ACTION,
   });
 };
 
-export const processOrdersRequest = async (ctx: BotContext): Promise<void> => {
-  await processJobsRequest(ctx);
-};
-
 export const registerExecutorOrders = (bot: Telegraf<BotContext>): void => {
-  registerExecutorJobs(bot);
-
   bot.action(EXECUTOR_ORDERS_ACTION, async (ctx) => {
-    if (ctx.chat?.type !== 'private') {
-      await ctx.answerCbQuery('Доступно только в личных сообщениях.');
-      return;
-    }
-
-    await ctx.answerCbQuery('Открываю ленту заказов…');
-    await processOrdersRequest(ctx);
+    await ctx.answerCbQuery();
+    await showExecutorOrdersInfo(ctx);
   });
 
   bot.hears(EXECUTOR_MENU_TEXT_LABELS.orders, async (ctx) => {
@@ -188,6 +72,6 @@ export const registerExecutorOrders = (bot: Telegraf<BotContext>): void => {
       return;
     }
 
-    await processOrdersRequest(ctx);
+    await showExecutorOrdersInfo(ctx);
   });
 };
