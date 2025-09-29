@@ -38,6 +38,7 @@ import { setChatCommands } from '../../services/commands';
 import { buildInlineKeyboard, buildConfirmCancelKeyboard } from '../../keyboards/common';
 import { wrapCallbackData } from '../../services/callbackTokens';
 import { buildExecutorPlanActionKeyboard } from '../../ui/executorPlans';
+import { parseDateTimeInTimezone } from '../../../utils/time';
 
 const VERIFY_COMMANDS = ['from', 'form'] as const;
 
@@ -200,8 +201,8 @@ const parseStartDate = (value: string): Date | null => {
     }
   }
 
-  const parsed = new Date(trimmed);
-  if (!Number.isNaN(parsed.getTime())) {
+  const parsed = parseDateTimeInTimezone(trimmed, config.timezone);
+  if (parsed) {
     return parsed;
   }
 

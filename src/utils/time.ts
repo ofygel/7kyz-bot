@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon';
+
 const SECOND_IN_MS = 1000;
 const MINUTE_IN_MS = SECOND_IN_MS * 60;
 const HOUR_IN_MS = MINUTE_IN_MS * 60;
@@ -105,4 +107,64 @@ export const addMilliseconds = (
   }
 
   return new Date(timestamp + ms);
+};
+
+const ISO_TIMEZONE_PATTERN = /([zZ]|[+-]\d{2}:?\d{2})$/;
+
+const LOCAL_FORMATS = [
+  'dd.MM.yyyy, HH:mm:ss',
+  'dd.MM.yyyy, HH:mm',
+  'd.M.yyyy, HH:mm:ss',
+  'd.M.yyyy, HH:mm',
+  'dd.MM.yyyy HH:mm:ss',
+  'dd.MM.yyyy HH:mm',
+  'd.M.yyyy HH:mm:ss',
+  'd.M.yyyy HH:mm',
+  'dd.MM.yyyy',
+  'd.M.yyyy',
+];
+
+export const parseDateTimeInTimezone = (
+  value: string,
+  timezone: string,
+): Date | null => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (ISO_TIMEZONE_PATTERN.test(trimmed)) {
+    const withOffset = DateTime.fromISO(trimmed);
+    if (withOffset.isValid) {
+      return withOffset.toJSDate();
+    }
+  }
+
+  const iso = DateTime.fromISO(trimmed, { zone: timezone });
+  if (iso.isValid) {
+    return iso.toJSDate();
+  }
+
+  for (const format of LOCAL_FORMATS) {
+    const parsed = DateTime.fromFormat(trimmed, format, {
+      zone: timezone,
+      locale: 'ru',
+    });
+    if (parsed.isValid) {
+      return parsed.toJSDate();
+    }
+  }
+
+  const numeric = Number.parseFloat(trimmed);
+  if (Number.isFinite(numeric)) {
+    if (trimmed.length === 10) {
+      return new Date(numeric * 1000);
+    }
+
+    if (trimmed.length === 13) {
+      return new Date(numeric);
+    }
+  }
+
+  return null;
 };

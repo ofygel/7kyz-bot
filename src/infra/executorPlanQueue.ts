@@ -16,6 +16,7 @@ import type {
   ExecutorPlanStatus,
 } from '../types';
 import { getRedisClient } from './redis';
+import { parseDateTimeInTimezone } from '../utils/time';
 
 const MUTATION_QUEUE_KEY = 'executor-plan-mutations';
 const MAX_MUTATIONS_PER_FLUSH = 100;
@@ -70,8 +71,7 @@ const parseStartDate = (value: string): Date | null => {
   }
 
   const trimmed = value.trim();
-  const parsed = new Date(trimmed);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return parseDateTimeInTimezone(trimmed, config.timezone);
 };
 
 const applyMutation = async (
@@ -181,6 +181,10 @@ export const enqueueExecutorPlanMutation = async (
 
   const payload = JSON.stringify(mutation);
   await redis.rpush(getQueueKey(), payload);
+};
+
+export const __testing = {
+  parseStartDate,
 };
 
 export const flushExecutorPlanMutations = async (): Promise<void> => {
