@@ -265,6 +265,10 @@ const parsePlanForm = (payload: string): ParsedPlanForm => {
     result.comment = remainder.join('\n');
   }
 
+  if (!result.startAt) {
+    result.startAt = new Date();
+  }
+
   return result;
 };
 
@@ -382,8 +386,9 @@ const handleCreateCommand = async (ctx: BotContext, command: string): Promise<vo
   if (!input) {
     await ctx.reply(
       [
-        'Не удалось разобрать данные формы. Укажите телефон, тариф (7/15/30) и дату старта.',
-        'Пример:\n/from +77001234567 @nickname 7 2024-11-20 Комментарий',
+        'Не удалось разобрать данные формы. Укажите телефон и тариф (7/15/30).',
+        'Дата старта будет проставлена автоматически, если не указана явно.',
+        'Пример:\n/from +77001234567 @nickname 7 Комментарий',
       ].join('\n'),
     );
     return;
@@ -754,4 +759,9 @@ export const registerFromCommand = (bot: Telegraf<BotContext>): void => {
       await handleEditCallback(ctx, planId);
     }
   });
+};
+
+export const __testing = {
+  parsePlanForm,
+  buildPlanInput,
 };
