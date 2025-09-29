@@ -190,6 +190,22 @@ export const handleStart = async (ctx: BotContext): Promise<void> => {
   const needsRoleSelection =
     !role || awaitingRoleSelection || stage === 'role' || stage === 'executorKind' || stage === 'city';
   if (needsRoleSelection) {
+    const verificationRoleState = role ? executorState.verification[role] : undefined;
+    const hasUnfinishedVerification =
+      Boolean(
+        role &&
+          verificationRoleState &&
+          (verificationRoleState.status === 'collecting' ||
+            verificationRoleState.uploadedPhotos.length > 0),
+      );
+
+    if (hasUnfinishedVerification) {
+      executorState.awaitingRoleSelection = false;
+      executorState.roleSelectionStage = undefined;
+      await startExecutorVerification(ctx);
+      return;
+    }
+
     executorState.awaitingRoleSelection = true;
     executorState.role = undefined;
     const prompt = stage === 'executorKind' || stage === 'city'

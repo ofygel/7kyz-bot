@@ -273,17 +273,24 @@ export const ensureExecutorState = (ctx: BotContext): ExecutorFlowState => {
     const hasActiveRoleSelectionStage = state.roleSelectionStage !== undefined;
     if (hasActiveRoleSelectionStage && state.awaitingRoleSelection !== true) {
       state.awaitingRoleSelection = true;
+    } else if (
+      derivedRole !== undefined &&
+      !hasActiveRoleSelectionStage &&
+      state.awaitingRoleSelection === true
+    ) {
+      state.awaitingRoleSelection = false;
     }
 
     const awaitingSelection = state.awaitingRoleSelection === true;
 
     if (derivedRole !== undefined) {
-      if (!awaitingSelection) {
+      if (!state.role) {
         state.role = derivedRole;
+      }
+
+      if (!awaitingSelection) {
         state.awaitingRoleSelection = false;
         state.roleSelectionStage = undefined;
-      } else if (!state.role) {
-        state.role = derivedRole;
       }
     } else if (ctx.session.isAuthenticated === false && ctx.auth.user.role === 'guest') {
       // Preserve the existing executor role when auth falls back to the guest context.
