@@ -17,7 +17,7 @@ import {
 import { presentRolePick } from '../../commands/start';
 
 const SUBSCRIPTION_INFO_STEP_ID = 'executor:subscription:info';
-const SUPPORT_USERNAME = 'support_seven';
+const SUPPORT_USERNAME = 'seven_support';
 const SUPPORT_LINK = `https://t.me/${SUPPORT_USERNAME}`;
 
 const buildPaymentDetails = (): string[] => [
@@ -45,7 +45,7 @@ const buildSubscriptionInfoText = (ctx: BotContext): string => {
   return [
     `${roleCopy.emoji} Подписка для ${roleCopy.genitive}`,
     '',
-    'Доступ к заказам оформляется через поддержку. Выберите подходящий план и напишите @support_seven — команда пришлёт инструкции и проверит оплату.',
+    'Доступ к заказам оформляется через поддержку. Выберите подходящий план и напишите @seven_support — команда пришлёт инструкции и проверит оплату.',
     '',
     ...planLines,
     '',
