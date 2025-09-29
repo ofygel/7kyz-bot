@@ -601,10 +601,4 @@ export const registerExecutorJobs = (bot: Telegraf<BotContext>): void => {
 
     await handleCompletionAction(ctx, orderId);
   });
-
-export const registerExecutorJobs = (_bot: Telegraf<BotContext>): void => {
-  // Интерактивная лента заказов отключена.
-
 };
-
-export const registerExecutorOrders = registerExecutorJobs;
