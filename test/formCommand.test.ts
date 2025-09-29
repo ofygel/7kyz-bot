@@ -207,6 +207,10 @@ void (async () => {
     summaryStep?.text.includes('Проверьте данные плана'),
     'Итоговое резюме должно содержать инструкцию на проверку данных',
   );
+  assert.ok(
+    summaryStep?.text.includes('Окончание:'),
+    'Итоговое резюме должно содержать дату окончания плана',
+  );
 
   await __testing.handleSummaryDecision(ctx, threadKey, 'confirm');
 
@@ -221,6 +225,17 @@ void (async () => {
     processedMutations[0].payload.planChoice,
     '15',
     'В мутации должен использоваться выбранный тариф',
+  );
+  assert.ok(
+    processedMutations[0].payload.endsAt,
+    'В мутации должна передаваться вычисленная дата окончания',
+  );
+  assert.equal(
+    processedMutations[0].payload.endsAt?.toISOString(),
+    new Date(
+      processedMutations[0].payload.startAt.getTime() + 15 * 24 * 60 * 60 * 1000,
+    ).toISOString(),
+    'Дата окончания должна вычисляться на основе тарифа',
   );
   assert.equal(
     processedMutations[0].payload.comment,
