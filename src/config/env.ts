@@ -302,6 +302,9 @@ export interface AppConfig {
     ttlSeconds: number;
     redis: { url: string; keyPrefix: string } | null;
   };
+  channels: {
+    bindVerifyChannelId?: number;
+  };
   city: {
     default?: string;
   };
@@ -380,6 +383,9 @@ export const loadConfig = (): AppConfig => {
             keyPrefix: sessionCachePrefix,
           }
         : null,
+    },
+    channels: {
+      bindVerifyChannelId: parseOptionalChatId('BIND_VERIFY_CHANNEL_ID'),
     },
     city: {
       default: getOptionalString('CITY_DEFAULT'),

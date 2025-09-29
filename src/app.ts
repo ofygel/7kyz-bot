@@ -19,6 +19,7 @@ import { registerExecutorVerification } from './bot/flows/executor/verification'
 import { registerJoinRequests } from './bot/channels/joinRequests';
 import { registerMembershipSync } from './bot/channels/membership';
 import { registerOrdersChannel } from './bot/channels/ordersChannel';
+import { registerChannelCommands } from './bot/channels/commands';
 import {
   registerPaymentModerationQueue,
   restorePaymentModerationQueue,
@@ -95,6 +96,7 @@ registerVerificationModerationQueue(app);
 registerPaymentModerationQueue(app);
 registerSupportModerationBridge(app);
 registerOrdersChannel(app);
+registerChannelCommands(app);
 registerJoinRequests(app);
 registerMembershipSync(app);
 
