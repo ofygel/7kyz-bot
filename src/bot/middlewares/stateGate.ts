@@ -99,7 +99,12 @@ export const stateGate = (): MiddlewareFn<BotContext> => async (ctx, next) => {
 
   const executor = isExecutorUser(ctx);
 
-  if (executor && user.status === 'trial_expired') {
+  if (user.status === 'trial_expired') {
+    if (!executor) {
+      await next();
+      return;
+    }
+
     const warning =
       'Пробный период завершён. Продлите подписку, чтобы продолжить получать заказы.';
     await answerCallbackQuery(warning);
