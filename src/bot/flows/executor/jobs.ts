@@ -41,16 +41,9 @@ import {
   toUserIdentity,
 } from '../../services/reports';
 import type { BotContext, ExecutorFlowState } from '../../types';
-import {
-  EXECUTOR_MENU_ACTION,
-  ensureExecutorState,
-  getExecutorAccessStatus,
-  isExecutorRoleVerified,
-  requireExecutorRole,
-} from './menu';
+import { EXECUTOR_MENU_ACTION, ensureExecutorState, requireExecutorRole } from './menu';
 import { ensureCitySelected } from '../common/citySelect';
-import { startExecutorVerification } from './verification';
-import { startExecutorSubscription } from './subscription';
+import { askPhone } from '../../middlewares/askPhone';
 import type { OrderRecord } from '../../../types';
 import { formatEtaMinutes } from '../../services/pricing';
 
@@ -297,22 +290,21 @@ const ensurePrivateChat = async (ctx: BotContext): Promise<boolean> => {
   return true;
 };
 
-const ensureExecutorReady = async (
+export const ensureExecutorReady = async (
   ctx: BotContext,
-  state: ExecutorFlowState,
+  _state: ExecutorFlowState,
 ): Promise<boolean> => {
-  const access = getExecutorAccessStatus(ctx, state);
-  if (!access.isVerified) {
-    await startExecutorVerification(ctx);
+  const user = ctx.auth.user;
+
+  if (user.isBlocked || user.status === 'suspended' || user.status === 'banned') {
+    await ctx.reply(copy.orderAccessBlocked);
     return false;
   }
 
-  if (!access.hasActiveSubscription) {
-    if (ctx.auth.user.hasActiveOrder) {
-      return true;
-    }
+  const hasPhone = Boolean(ctx.session.phoneNumber || user.phone || user.phoneVerified);
 
-    await startExecutorSubscription(ctx, { skipVerificationCheck: true });
+  if (!hasPhone) {
+    await askPhone(ctx);
     return false;
   }
 
@@ -357,15 +349,15 @@ interface ClaimOutcomeFailure {
     | 'already_taken'
     | 'city_mismatch'
     | 'forbidden_kind'
-    | 'driver_unverified'
-    | 'courier_unverified'
+    | 'phone_required'
+    | 'blocked'
     | 'limit_exceeded';
   order?: OrderRecord;
 }
 
 type ClaimOutcome = ClaimOutcomeClaimed | ClaimOutcomeFailure;
 
-const attemptClaimOrder = async (
+export const attemptClaimOrder = async (
   ctx: BotContext,
   state: ExecutorFlowState,
   city: AppCity,
@@ -378,6 +370,15 @@ const attemptClaimOrder = async (
 
   const role = requireExecutorRole(state);
   const executorKind = ctx.auth.user.executorKind;
+
+  if (ctx.auth.user.isBlocked || ctx.auth.user.status === 'suspended' || ctx.auth.user.status === 'banned') {
+    return { status: 'blocked' };
+  }
+
+  const hasPhone = Boolean(ctx.auth.user.phone ?? ctx.session.phoneNumber);
+  if (!hasPhone) {
+    return { status: 'phone_required' };
+  }
 
   try {
     return await withTx(async (client) => {
@@ -398,11 +399,6 @@ const attemptClaimOrder = async (
         if (role !== 'driver' || executorKind !== 'driver') {
           return { status: 'forbidden_kind', order: current };
         }
-        if (!isExecutorRoleVerified(ctx, 'driver')) {
-          return { status: 'driver_unverified', order: current };
-        }
-      } else if (!isExecutorRoleVerified(ctx, 'courier') && !isExecutorRoleVerified(ctx, 'driver')) {
-        return { status: 'courier_unverified', order: current };
       }
 
       if (role === 'driver') {
@@ -676,12 +672,13 @@ const handleAcceptAction = async (ctx: BotContext, orderId: number): Promise<voi
     case 'forbidden_kind':
       await ctx.answerCbQuery('🚫 Этот заказ доступен только водителям.', { show_alert: true });
       break;
-    case 'driver_unverified':
-      await ctx.answerCbQuery(copy.orderDriverVerificationRequired, { show_alert: true });
-      break;
-    case 'courier_unverified':
-      await ctx.answerCbQuery(copy.orderCourierVerificationRequired, { show_alert: true });
-      break;
+    case 'phone_required':
+      await ctx.answerCbQuery(copy.orderPhoneRequired, { show_alert: true });
+      await askPhone(ctx);
+      return;
+    case 'blocked':
+      await ctx.answerCbQuery(copy.orderAccessBlocked, { show_alert: true });
+      return;
     case 'limit_exceeded':
       await ctx.answerCbQuery('У вас уже есть активный заказ. Сначала завершите его.', {
         show_alert: true,
