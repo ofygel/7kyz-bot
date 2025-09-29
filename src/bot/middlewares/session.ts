@@ -26,6 +26,7 @@ import {
   type ExecutorRole,
   type ExecutorSubscriptionState,
   type ExecutorUploadedPhoto,
+  type ExecutorVerificationRoleState,
   type ExecutorVerificationState,
   type OnboardingState,
   type SessionState,
@@ -47,6 +48,7 @@ const createVerificationState = (): ExecutorVerificationState => {
       status: 'idle',
       requiredPhotos: EXECUTOR_VERIFICATION_PHOTO_COUNT,
       uploadedPhotos: [],
+      processedMediaGroups: {},
     };
   }
   return verification;
@@ -380,6 +382,35 @@ const rebuildExecutorState = (value: unknown): ExecutorFlowState => {
 
         state.verification[role].uploadedPhotos = photos;
       }
+
+      const processedGroups = (candidate as {
+        processedMediaGroups?: unknown;
+      }).processedMediaGroups;
+      const groups: ExecutorVerificationRoleState['processedMediaGroups'] = {};
+      if (processedGroups && typeof processedGroups === 'object') {
+        for (const [groupId, groupValue] of Object.entries(
+          processedGroups as Record<string, unknown>,
+        )) {
+          if (!groupValue || typeof groupValue !== 'object') {
+            continue;
+          }
+
+          const sourceIds = (groupValue as { photoUniqueIds?: unknown }).photoUniqueIds;
+          const photoUniqueIds = Array.isArray(sourceIds)
+            ? sourceIds.filter((value): value is string => typeof value === 'string')
+            : [];
+          const progressNotified = Boolean(
+            (groupValue as { progressNotified?: unknown }).progressNotified,
+          );
+
+          groups[groupId] = {
+            photoUniqueIds: [...photoUniqueIds],
+            progressNotified,
+          };
+        }
+      }
+
+      state.verification[role].processedMediaGroups = groups;
     }
   }
 

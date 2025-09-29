@@ -76,6 +76,34 @@ const cloneUploadedPhotos = (
   return photos.map((photo) => ({ ...photo }));
 };
 
+const cloneProcessedMediaGroups = (
+  groups?: ExecutorVerificationRoleState['processedMediaGroups'],
+): ExecutorVerificationRoleState['processedMediaGroups'] => {
+  if (!groups || typeof groups !== 'object') {
+    return {};
+  }
+
+  const clone: ExecutorVerificationRoleState['processedMediaGroups'] = {};
+  for (const [key, value] of Object.entries(groups)) {
+    if (!value || typeof value !== 'object') {
+      continue;
+    }
+
+    const progressNotified = Boolean((value as { progressNotified?: unknown }).progressNotified);
+    const sourceIds = (value as { photoUniqueIds?: unknown }).photoUniqueIds;
+    const photoUniqueIds = Array.isArray(sourceIds)
+      ? sourceIds.filter((id): id is string => typeof id === 'string')
+      : [];
+
+    clone[key] = {
+      photoUniqueIds: [...photoUniqueIds],
+      progressNotified,
+    };
+  }
+
+  return clone;
+};
+
 const cloneModerationState = (
   moderation?: ExecutorVerificationRoleState['moderation'],
 ): ExecutorVerificationRoleState['moderation'] => {
@@ -93,6 +121,7 @@ const createRoleVerificationState = (): ExecutorVerificationRoleState => ({
   submittedAt: undefined,
   moderation: undefined,
   lastReminderAt: undefined,
+  processedMediaGroups: {},
 });
 
 const createSubscriptionState = (): ExecutorSubscriptionState => ({
@@ -114,6 +143,7 @@ const normaliseRoleVerificationState = (
   submittedAt: value?.submittedAt,
   moderation: cloneModerationState(value?.moderation),
   lastReminderAt: typeof value?.lastReminderAt === 'number' ? value.lastReminderAt : undefined,
+  processedMediaGroups: cloneProcessedMediaGroups(value?.processedMediaGroups),
 });
 
 const createDefaultVerificationState = () => {
@@ -156,6 +186,7 @@ const normaliseVerificationState = (
     verification[role] = {
       ...fallback,
       uploadedPhotos: cloneUploadedPhotos(fallback.uploadedPhotos),
+      processedMediaGroups: cloneProcessedMediaGroups(fallback.processedMediaGroups),
     };
   }
 
