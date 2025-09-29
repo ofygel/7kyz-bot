@@ -275,4 +275,83 @@ void (async () => {
   assert.equal(replies.length, 0, 'Мастер не должен отправлять дополнительные сообщения через reply');
 
   console.log('form command wizard flow test: OK');
+
+  const channelThreadId = 777;
+  const channelThreadKey = __testing.getThreadKey(channelThreadId);
+
+  const channelSession = {
+    ephemeralMessages: [],
+    isAuthenticated: false,
+    safeMode: false,
+    isDegraded: false,
+    awaitingPhone: false,
+    authSnapshot: {} as Record<string, unknown>,
+    executor: {} as Record<string, unknown>,
+    client: {} as Record<string, unknown>,
+    ui: { steps: {}, homeActions: [] },
+    moderationPlans: { threads: {} },
+    support: { status: 'idle' },
+    onboarding: { active: false },
+  } as unknown as BotContext['session'];
+
+  const channelReplies: string[] = [];
+
+  const channelCtx = {
+    chat: { id: 123, type: 'supergroup' },
+    session: channelSession,
+    auth: {} as Record<string, unknown>,
+    telegram: {
+      sendMessage: async () => ({ message_id: 1 }),
+    },
+    reply: async (text: string) => {
+      channelReplies.push(text);
+      return { message_id: channelReplies.length };
+    },
+  } as unknown as BotContext;
+
+  const setChannelPost = (text: string) => {
+    delete (channelCtx as { message?: unknown }).message;
+    (channelCtx as { channelPost?: unknown }).channelPost = {
+      message_thread_id: channelThreadId,
+      text,
+    };
+  };
+
+  await __testing.startWizard(channelCtx, channelThreadKey, channelThreadId);
+
+  let channelWizardState = channelSession.moderationPlans.threads[channelThreadKey];
+  assert.ok(channelWizardState, 'Состояние мастера должно создаваться для channel_post');
+  assert.equal(
+    channelWizardState?.step,
+    'phone',
+    'Первый шаг мастера при channel_post — ввод телефона',
+  );
+
+  setChannelPost('+7 (700) 123-45-67');
+  assert.equal(await __testing.handleWizardTextMessage(channelCtx), true);
+
+  channelWizardState = channelSession.moderationPlans.threads[channelThreadKey];
+  assert.equal(
+    channelWizardState?.phone,
+    '+77001234567',
+    'Телефон должен нормализоваться при channel_post',
+  );
+  assert.equal(
+    channelWizardState?.step,
+    'nickname',
+    'После channel_post с телефоном ожидается ник',
+  );
+
+  setChannelPost('@executor');
+  assert.equal(await __testing.handleWizardTextMessage(channelCtx), true);
+
+  channelWizardState = channelSession.moderationPlans.threads[channelThreadKey];
+  assert.equal(channelWizardState?.nickname, '@executor', 'Ник должен сохраняться при channel_post');
+  assert.equal(
+    channelWizardState?.step,
+    'plan',
+    'После ника при channel_post бот должен ожидать выбор тарифа',
+  );
+
+  console.log('form command wizard channel_post flow test: OK');
 })();

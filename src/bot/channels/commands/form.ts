@@ -539,18 +539,19 @@ const handleWizardTextMessage = async (ctx: BotContext): Promise<boolean> => {
     return false;
   }
 
-  const message = ctx.message;
-  if (!message || typeof message !== 'object' || !('text' in message)) {
+  const message = ctx.message ?? ctx.channelPost;
+  if (!message || typeof message !== 'object') {
     return false;
   }
 
-  const text = typeof message.text === 'string' ? message.text.trim() : '';
+  const messageRecord = message as unknown as Record<string, unknown>;
+  const text = typeof messageRecord.text === 'string' ? messageRecord.text.trim() : '';
   if (!text || text.startsWith('/')) {
     return false;
   }
 
-  const threadId = 'message_thread_id' in message ? message.message_thread_id : undefined;
-  const threadKey = getThreadKey(typeof threadId === 'number' ? threadId : undefined);
+  const threadId = typeof messageRecord.message_thread_id === 'number' ? messageRecord.message_thread_id : undefined;
+  const threadKey = getThreadKey(threadId);
   const state = getWizardState(ctx, threadKey);
   if (!state) {
     return false;
