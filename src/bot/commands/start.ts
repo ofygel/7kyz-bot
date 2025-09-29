@@ -7,8 +7,6 @@ import { hideClientMenu, sendClientMenu } from '../../ui/clientMenu';
 import { logger } from '../../config';
 import { askPhone, buildPhoneCollectKeyboard, PHONE_HELP_BUTTON_LABEL } from '../flows/common/phoneCollect';
 import { ensureExecutorState, showExecutorMenu } from '../flows/executor/menu';
-import { startExecutorVerification } from '../flows/executor/verification';
-import { startExecutorSubscription } from '../flows/executor/subscription';
 import { buildInlineKeyboard } from '../keyboards/common';
 import { ui } from '../ui';
 import { clearOnboardingState, setOnboardingStep } from '../services/onboarding';
@@ -190,22 +188,6 @@ export const handleStart = async (ctx: BotContext): Promise<void> => {
   const needsRoleSelection =
     !role || awaitingRoleSelection || stage === 'role' || stage === 'executorKind' || stage === 'city';
   if (needsRoleSelection) {
-    const verificationRoleState = role ? executorState.verification[role] : undefined;
-    const hasUnfinishedVerification =
-      Boolean(
-        role &&
-          verificationRoleState &&
-          (verificationRoleState.status === 'collecting' ||
-            verificationRoleState.uploadedPhotos.length > 0),
-      );
-
-    if (hasUnfinishedVerification) {
-      executorState.awaitingRoleSelection = false;
-      executorState.roleSelectionStage = undefined;
-      await startExecutorVerification(ctx);
-      return;
-    }
-
     executorState.awaitingRoleSelection = true;
     executorState.role = undefined;
     const prompt = stage === 'executorKind' || stage === 'city'
@@ -219,20 +201,6 @@ export const handleStart = async (ctx: BotContext): Promise<void> => {
     } else {
       await presentRolePick(ctx, { withHint: showRoleHint });
     }
-    return;
-  }
-
-  clearOnboardingState(ctx);
-
-  const verification = executorState.verification[role];
-  if (verification.status === 'idle' || verification.status === 'collecting') {
-    await startExecutorVerification(ctx);
-    return;
-  }
-
-  const subscriptionStatus = executorState.subscription.status;
-  if (subscriptionStatus === 'awaitingReceipt' || subscriptionStatus === 'pendingModeration') {
-    await startExecutorSubscription(ctx, { skipVerificationCheck: true });
     return;
   }
 

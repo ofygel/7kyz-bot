@@ -41,7 +41,7 @@ const createContext = (userOverrides = {}) => {
     isBlocked: false,
     citySelected: 'almaty',
     hasActiveOrder: false,
-    keyboardNonce: 'test-nonce-value',
+    keyboardNonce: 'nonce1',
   };
 
   const user = { ...baseUser, ...userOverrides };

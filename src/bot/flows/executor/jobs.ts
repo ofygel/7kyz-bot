@@ -1,5 +1,4 @@
 import { Telegraf } from 'telegraf';
-import type { InlineKeyboardMarkup } from 'telegraf/typings/core/types/typegram';
 
 import { logger } from '../../../config';
 import { withTx } from '../../../db/client';
@@ -41,254 +40,18 @@ import {
   toUserIdentity,
 } from '../../services/reports';
 import type { BotContext, ExecutorFlowState } from '../../types';
-import {
-  EXECUTOR_MENU_ACTION,
-  ensureExecutorState,
-  getExecutorAccessStatus,
-  isExecutorRoleVerified,
-  requireExecutorRole,
-} from './menu';
+import { EXECUTOR_MENU_ACTION, ensureExecutorState, requireExecutorRole } from './menu';
 import { ensureCitySelected } from '../common/citySelect';
-import { startExecutorVerification } from './verification';
-import { startExecutorSubscription } from './subscription';
+import { askPhone } from '../../middlewares/askPhone';
 import type { OrderRecord } from '../../../types';
 import { formatEtaMinutes } from '../../services/pricing';
+import type { BotContext } from '../../types';
 
-const JOB_FEED_STEP_ID = 'executor:jobs:feed';
-const JOB_CONFIRM_STEP_ID = 'executor:jobs:confirm';
-const JOB_PROGRESS_STEP_ID = 'executor:jobs:progress';
-const JOB_COMPLETE_STEP_ID = 'executor:jobs:complete';
+const SUPPORT_USERNAME = 'support_seven';
 
-const JOB_REFRESH_ACTION = 'executor:jobs:refresh';
-const JOB_FEED_ACTION = 'executor:jobs:feed:action';
-const JOB_VIEW_ACTION_PREFIX = 'executor:jobs:view';
-const JOB_ACCEPT_ACTION_PREFIX = 'executor:jobs:accept';
-const JOB_RELEASE_ACTION_PREFIX = 'executor:jobs:release';
-const JOB_COMPLETE_ACTION_PREFIX = 'executor:jobs:complete';
-
-const JOB_VIEW_ACTION_PATTERN = /^executor:jobs:view:(\d+)$/;
-const JOB_ACCEPT_ACTION_PATTERN = /^executor:jobs:accept:(\d+)$/;
-const JOB_RELEASE_ACTION_PATTERN = /^executor:jobs:release:(\d+)$/;
-const JOB_COMPLETE_ACTION_PATTERN = /^executor:jobs:complete:(\d+)$/;
-
-const FEED_LIMIT = 6;
-
-const ORDER_KIND_EMOJI: Record<OrderRecord['kind'], string> = {
-  taxi: '🚕',
-  delivery: '📦',
-};
-
-const formatPrice = (amount: number, currency: string): string =>
-  `${new Intl.NumberFormat('ru-RU').format(amount)} ${currency}`;
-
-const formatDistance = (distanceKm: number): string => {
-  if (!Number.isFinite(distanceKm)) {
-    return 'н/д';
-  }
-
-  if (distanceKm < 0.1) {
-    return '<0.1';
-  }
-
-  return distanceKm.toFixed(1);
-};
-
-const formatOrderSummary = (order: OrderRecord): string => {
-  const emoji = ORDER_KIND_EMOJI[order.kind] ?? '📦';
-  const price = formatPrice(order.price.amount, order.price.currency);
-  const distance = formatDistance(order.price.distanceKm);
-  const eta = formatEtaMinutes(order.price.etaMinutes);
-  const route = `${order.pickup.address} → ${order.dropoff.address}`;
-  return [
-    `${emoji} #${order.shortId ?? order.id} • ${price}`,
-    `Маршрут: ${route}`,
-    `Расстояние: ${distance} км • В пути ≈${eta} мин`,
-  ].join('\n');
-};
-
-const buildFeedKeyboard = (orders: OrderRecord[]): InlineKeyboardMarkup => {
-  const rows = orders.map((order) => [
-    {
-      label: `${ORDER_KIND_EMOJI[order.kind] ?? '📦'} #${order.shortId ?? order.id}`,
-      action: `${JOB_VIEW_ACTION_PREFIX}:${order.id}`,
-    },
-  ]);
-
-  rows.push([{ label: copy.refresh, action: JOB_REFRESH_ACTION }]);
-
-  return buildInlineKeyboard(rows);
-};
-
-const buildFeedMessage = (city: AppCity, orders: OrderRecord[]): string => {
-  const cityLabel = CITY_LABEL[city] ?? city;
-  const lines: string[] = [
-    `🧾 Лента заказов — ${cityLabel}`,
-  ];
-
-  if (orders.length === 0) {
-    lines.push('', 'Свободных заказов пока нет. Попробуйте обновить чуть позже.');
-    return lines.join('\n');
-  }
-
-  const descriptions = orders.map((order, index) => `\n${index + 1}. ${formatOrderSummary(order)}`);
-  lines.push('', 'Выберите заказ, чтобы посмотреть детали и подтвердить взятие.');
-  lines.push(...descriptions);
-  return lines.join('\n');
-};
-
-const showJobFeed = async (
-  ctx: BotContext,
-  state: ExecutorFlowState,
-  city: AppCity,
-  orders: OrderRecord[],
-): Promise<void> => {
-  state.jobs.stage = 'feed';
-  state.jobs.pendingOrderId = undefined;
-  state.jobs.lastViewedAt = Date.now();
-
-  const keyboard = buildFeedKeyboard(orders);
-  await ui.step(ctx, {
-    id: JOB_FEED_STEP_ID,
-    text: buildFeedMessage(city, orders),
-    keyboard,
-    homeAction: EXECUTOR_MENU_ACTION,
-    cleanup: false,
-  });
-
-  const executor = toUserIdentity(ctx.from);
-  await reportJobFeedViewed(ctx.telegram, executor, city, orders.length);
-};
-
-const buildConfirmationKeyboard = (order: OrderRecord): InlineKeyboardMarkup => {
-  const actions = buildInlineKeyboard([
-    [
-      { label: '✅ Взять заказ', action: `${JOB_ACCEPT_ACTION_PREFIX}:${order.id}` },
-      { label: copy.back, action: JOB_FEED_ACTION },
-    ],
-  ]);
-
-  const locations = buildOrderLocationsKeyboard(order.city, order.pickup, order.dropoff, {
-    pickupLabel: '🅰️ Подача',
-    dropoffLabel: '🅱️ Назначение',
-    routeLabel: '➡️ Маршрут в 2ГИС',
-  });
-
-  return mergeInlineKeyboards(locations, actions) ?? actions;
-};
-
-const showJobConfirmation = async (
-  ctx: BotContext,
-  state: ExecutorFlowState,
-  order: OrderRecord,
-): Promise<void> => {
-  state.jobs.stage = 'confirm';
-  state.jobs.pendingOrderId = order.id;
-
-  await ui.step(ctx, {
-    id: JOB_CONFIRM_STEP_ID,
-    text: buildOrderDetailsMessage(order),
-    keyboard: buildConfirmationKeyboard(order),
-    homeAction: EXECUTOR_MENU_ACTION,
-    cleanup: false,
-  });
-};
-
-const CONTACT_BUTTON_LABEL = '📞 Связаться';
-
-const sanitizePhoneNumber = (phone?: string): string | undefined => {
-  const trimmed = phone?.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  const cleaned = trimmed.replace(/[^0-9+]/g, '');
-  if (!cleaned) {
-    return undefined;
-  }
-
-  const hasLeadingPlus = cleaned.startsWith('+');
-  const digits = (hasLeadingPlus ? cleaned.slice(1) : cleaned).split('+').join('');
-  if (!digits) {
-    return undefined;
-  }
-
-  const normalized = hasLeadingPlus ? `+${digits}` : digits;
-  return normalized.startsWith('+') ? normalized : `+${normalized}`;
-};
-
-const buildOrderContactUrl = (order: OrderRecord): string | undefined => {
-  const phone =
-    sanitizePhoneNumber(order.clientPhone) ??
-    sanitizePhoneNumber(order.recipientPhone);
-
-  if (!phone) {
-    return undefined;
-  }
-
-  return `tel:${phone}`;
-};
-
-export const buildProgressKeyboard = (order: OrderRecord): InlineKeyboardMarkup => {
-  const actionRows: KeyboardButton[][] = [
-    [
-      { label: '🏁 Завершить', action: `${JOB_COMPLETE_ACTION_PREFIX}:${order.id}` },
-      { label: '↩️ Отказаться', action: `${JOB_RELEASE_ACTION_PREFIX}:${order.id}` },
-    ],
-  ];
-
-  const contactUrl = buildOrderContactUrl(order);
-  if (contactUrl) {
-    actionRows.unshift([{ label: CONTACT_BUTTON_LABEL, url: contactUrl }]);
-  }
-
-  const actions = buildInlineKeyboard(actionRows);
-  const locations = buildOrderLocationsKeyboard(order.city, order.pickup, order.dropoff);
-  return mergeInlineKeyboards(locations, actions) ?? actions;
-};
-
-const showJobInProgress = async (
-  ctx: BotContext,
-  state: ExecutorFlowState,
-  order: OrderRecord,
-): Promise<void> => {
-  state.jobs.stage = 'inProgress';
-  state.jobs.activeOrderId = order.id;
-  state.jobs.pendingOrderId = undefined;
-  state.jobs.lastViewedAt = Date.now();
-  ctx.auth.user.hasActiveOrder = true;
-
-  await ui.step(ctx, {
-    id: JOB_PROGRESS_STEP_ID,
-    text: buildOrderDetailsMessage(order),
-    keyboard: buildProgressKeyboard(order),
-    homeAction: EXECUTOR_MENU_ACTION,
-    cleanup: false,
-  });
-};
-
-const showCompletionSummary = async (
-  ctx: BotContext,
-  state: ExecutorFlowState,
-  message: string,
-): Promise<void> => {
-  state.jobs.stage = 'complete';
-  state.jobs.activeOrderId = undefined;
-  state.jobs.pendingOrderId = undefined;
-  ctx.auth.user.hasActiveOrder = false;
-
-  const keyboard = buildInlineKeyboard([[{ label: copy.refresh, action: JOB_REFRESH_ACTION }]]);
-
-  await ui.step(ctx, {
-    id: JOB_COMPLETE_STEP_ID,
-    text: message,
-    keyboard,
-    homeAction: EXECUTOR_MENU_ACTION,
-    cleanup: false,
-  });
-};
-
-const ensurePrivateChat = async (ctx: BotContext): Promise<boolean> => {
+export const processOrdersRequest = async (ctx: BotContext): Promise<void> => {
   if (ctx.chat?.type !== 'private') {
+
     if (typeof ctx.answerCbQuery === 'function') {
       await ctx.answerCbQuery('Доступно только в личных сообщениях.');
     }
@@ -297,22 +60,21 @@ const ensurePrivateChat = async (ctx: BotContext): Promise<boolean> => {
   return true;
 };
 
-const ensureExecutorReady = async (
+export const ensureExecutorReady = async (
   ctx: BotContext,
-  state: ExecutorFlowState,
+  _state: ExecutorFlowState,
 ): Promise<boolean> => {
-  const access = getExecutorAccessStatus(ctx, state);
-  if (!access.isVerified) {
-    await startExecutorVerification(ctx);
+  const user = ctx.auth.user;
+
+  if (user.isBlocked || user.status === 'suspended' || user.status === 'banned') {
+    await ctx.reply(copy.orderAccessBlocked);
     return false;
   }
 
-  if (!access.hasActiveSubscription) {
-    if (ctx.auth.user.hasActiveOrder) {
-      return true;
-    }
+  const hasPhone = Boolean(ctx.session.phoneNumber || user.phone || user.phoneVerified);
 
-    await startExecutorSubscription(ctx, { skipVerificationCheck: true });
+  if (!hasPhone) {
+    await askPhone(ctx);
     return false;
   }
 
@@ -357,15 +119,15 @@ interface ClaimOutcomeFailure {
     | 'already_taken'
     | 'city_mismatch'
     | 'forbidden_kind'
-    | 'driver_unverified'
-    | 'courier_unverified'
+    | 'phone_required'
+    | 'blocked'
     | 'limit_exceeded';
   order?: OrderRecord;
 }
 
 type ClaimOutcome = ClaimOutcomeClaimed | ClaimOutcomeFailure;
 
-const attemptClaimOrder = async (
+export const attemptClaimOrder = async (
   ctx: BotContext,
   state: ExecutorFlowState,
   city: AppCity,
@@ -378,6 +140,15 @@ const attemptClaimOrder = async (
 
   const role = requireExecutorRole(state);
   const executorKind = ctx.auth.user.executorKind;
+
+  if (ctx.auth.user.isBlocked || ctx.auth.user.status === 'suspended' || ctx.auth.user.status === 'banned') {
+    return { status: 'blocked' };
+  }
+
+  const hasPhone = Boolean(ctx.auth.user.phone ?? ctx.session.phoneNumber);
+  if (!hasPhone) {
+    return { status: 'phone_required' };
+  }
 
   try {
     return await withTx(async (client) => {
@@ -398,11 +169,6 @@ const attemptClaimOrder = async (
         if (role !== 'driver' || executorKind !== 'driver') {
           return { status: 'forbidden_kind', order: current };
         }
-        if (!isExecutorRoleVerified(ctx, 'driver')) {
-          return { status: 'driver_unverified', order: current };
-        }
-      } else if (!isExecutorRoleVerified(ctx, 'courier') && !isExecutorRoleVerified(ctx, 'driver')) {
-        return { status: 'courier_unverified', order: current };
       }
 
       if (role === 'driver') {
@@ -559,20 +325,15 @@ const notifyClientAboutRelease = async (
 const notifyClientAboutCompletion = async (ctx: BotContext, order: OrderRecord): Promise<void> => {
   const clientId = order.clientId;
   if (typeof clientId !== 'number') {
+
     return;
   }
 
-  const shortId = order.shortId ?? order.id.toString();
-  try {
-    await ctx.telegram.sendMessage(
-      clientId,
-      `✅ Ваш заказ №${shortId} завершён. Спасибо, что пользуетесь сервисом!`,
-    );
-    await sendClientMenuToChat(ctx.telegram, clientId, 'Готово. Хотите оформить новый заказ?');
-  } catch (error) {
-    logger.debug({ err: error, orderId: order.id, clientId }, 'Failed to notify client about completion');
-  }
+  await ctx.reply(
+    `Чтобы получить заказы, напишите @${SUPPORT_SEVEN} — поддержка подскажет, как подключиться к каналу.`,
+  );
 };
+
 
 const processJobFeed = async (ctx: BotContext): Promise<void> => {
   if (!(await ensurePrivateChat(ctx))) {
@@ -676,12 +437,13 @@ const handleAcceptAction = async (ctx: BotContext, orderId: number): Promise<voi
     case 'forbidden_kind':
       await ctx.answerCbQuery('🚫 Этот заказ доступен только водителям.', { show_alert: true });
       break;
-    case 'driver_unverified':
-      await ctx.answerCbQuery(copy.orderDriverVerificationRequired, { show_alert: true });
-      break;
-    case 'courier_unverified':
-      await ctx.answerCbQuery(copy.orderCourierVerificationRequired, { show_alert: true });
-      break;
+    case 'phone_required':
+      await ctx.answerCbQuery(copy.orderPhoneRequired, { show_alert: true });
+      await askPhone(ctx);
+      return;
+    case 'blocked':
+      await ctx.answerCbQuery(copy.orderAccessBlocked, { show_alert: true });
+      return;
     case 'limit_exceeded':
       await ctx.answerCbQuery('У вас уже есть активный заказ. Сначала завершите его.', {
         show_alert: true,
@@ -839,6 +601,10 @@ export const registerExecutorJobs = (bot: Telegraf<BotContext>): void => {
 
     await handleCompletionAction(ctx, orderId);
   });
+
+export const registerExecutorJobs = (_bot: Telegraf<BotContext>): void => {
+  // Интерактивная лента заказов отключена.
+
 };
 
 export const registerExecutorOrders = registerExecutorJobs;
