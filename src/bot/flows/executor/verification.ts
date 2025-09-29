@@ -10,7 +10,7 @@ import {
 } from './menu';
 import { ui, type UiStepResult } from '../../ui';
 
-const SUPPORT_USERNAME = 'support_seven';
+const SUPPORT_USERNAME = 'seven_support';
 const SUPPORT_LINK = `https://t.me/${SUPPORT_USERNAME}`;
 
 const ROLE_DOCUMENT_REQUIREMENTS: Record<ExecutorRole, string[]> = {

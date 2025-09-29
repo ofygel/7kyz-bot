@@ -2,7 +2,7 @@ import { Telegraf } from 'telegraf';
 
 import type { BotContext } from '../../types';
 
-const SUPPORT_USERNAME = 'support_seven';
+const SUPPORT_USERNAME = 'seven_support';
 
 export const processOrdersRequest = async (ctx: BotContext): Promise<void> => {
   if (ctx.chat?.type !== 'private') {
