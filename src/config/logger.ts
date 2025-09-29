@@ -86,7 +86,7 @@ const transport = buildTransport();
 const loggerOptions: LoggerOptions = {
   level: config.logLevel,
   base: {
-    service: 'freedom-bot',
+    service: 'service-bot',
     environment: config.nodeEnv,
   },
   formatters: {

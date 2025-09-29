@@ -1,6 +1,6 @@
 replicaCount: 2
 image:
-  repository: ghcr.io/example/freedom-bot
+  repository: ghcr.io/example/service-bot
   tag: "latest"
   pullPolicy: IfNotPresent
 service:
@@ -14,14 +14,14 @@ env:
   - name: WEBHOOK_SECRET
     valueFrom:
       secretKeyRef:
-        name: freedom-bot
+        name: service-bot
         key: webhookSecret
   - name: DATABASE_URL
     value: ""
   - name: SENTRY_DSN
     valueFrom:
       secretKeyRef:
-        name: freedom-bot
+        name: service-bot
         key: sentryDsn
   - name: SENTRY_TRACES_SAMPLE_RATE
     value: '0.1'
@@ -30,7 +30,7 @@ ingress:
   className: ""
   annotations: {}
   hosts:
-    - host: freedom-bot.local
+    - host: service-bot.local
       paths:
         - path: /
           pathType: Prefix

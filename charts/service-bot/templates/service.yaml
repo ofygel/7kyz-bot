@@ -1,16 +1,16 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "freedom-bot.fullname" . }}
+  name: {{ include "service-bot.fullname" . }}
   labels:
-    app.kubernetes.io/name: {{ include "freedom-bot.name" . }}
-    helm.sh/chart: {{ include "freedom-bot.chart" . }}
+    app.kubernetes.io/name: {{ include "service-bot.name" . }}
+    helm.sh/chart: {{ include "service-bot.chart" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   type: {{ .Values.service.type }}
   selector:
-    app.kubernetes.io/name: {{ include "freedom-bot.name" . }}
+    app.kubernetes.io/name: {{ include "service-bot.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - name: http

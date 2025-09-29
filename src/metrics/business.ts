@@ -13,14 +13,14 @@ type NoLabelCounter = PromCounter<string>;
 
 const createActiveOrdersGauge = (): NoLabelGauge =>
   new Gauge<string>({
-    name: 'freedombot_active_orders',
+    name: 'servicebot_active_orders',
     help: 'Текущее количество активных заказов в статусах open|claimed',
     registers: [metricsRegistry],
   });
 
 const createFailedPaymentsCounter = (): NoLabelCounter =>
   new Counter<string>({
-    name: 'freedombot_failed_payment_total',
+    name: 'servicebot_failed_payment_total',
     help: 'Счётчик неуспешных попыток платежа',
     registers: [metricsRegistry],
   });

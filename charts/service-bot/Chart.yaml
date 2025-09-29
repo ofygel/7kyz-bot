@@ -1,5 +1,5 @@
 apiVersion: v2
-name: freedom-bot
+name: service-bot
 version: 0.1.0
 appVersion: "1.0.0"
 description: Telegram bot deployment chart

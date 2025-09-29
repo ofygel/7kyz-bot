@@ -1,26 +1,26 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "freedom-bot.fullname" . }}
+  name: {{ include "service-bot.fullname" . }}
   labels:
-    app.kubernetes.io/name: {{ include "freedom-bot.name" . }}
-    helm.sh/chart: {{ include "freedom-bot.chart" . }}
+    app.kubernetes.io/name: {{ include "service-bot.name" . }}
+    helm.sh/chart: {{ include "service-bot.chart" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "freedom-bot.name" . }}
+      app.kubernetes.io/name: {{ include "service-bot.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "freedom-bot.name" . }}
+        app.kubernetes.io/name: {{ include "service-bot.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       containers:
-        - name: {{ include "freedom-bot.name" . }}
+        - name: {{ include "service-bot.name" . }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:

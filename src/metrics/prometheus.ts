@@ -3,7 +3,7 @@ import { Counter, Histogram, Registry, collectDefaultMetrics } from 'prom-client
 import { logger } from '../config';
 
 const registry = new Registry();
-registry.setDefaultLabels({ service: 'freedom-bot' });
+registry.setDefaultLabels({ service: 'service-bot' });
 collectDefaultMetrics({ register: registry });
 
 const updateCounter = new Counter({
