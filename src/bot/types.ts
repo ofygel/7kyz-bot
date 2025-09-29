@@ -1,6 +1,10 @@
 import type { Context } from 'telegraf';
 
-import type { OrderLocation, OrderPriceDetails } from '../types';
+import type {
+  ExecutorPlanChoice,
+  OrderLocation,
+  OrderPriceDetails,
+} from '../types';
 import type { AppCity } from '../domain/cities';
 
 export const EXECUTOR_VERIFICATION_PHOTO_COUNT = 3;
@@ -224,6 +228,22 @@ export interface UiSessionState {
   clientMenuVariant?: 'A' | 'B';
 }
 
+export type ModerationPlanWizardStep = 'phone' | 'nickname' | 'plan' | 'details' | 'summary';
+
+export interface ModerationPlanWizardState {
+  step: ModerationPlanWizardStep;
+  threadId?: number;
+  phone?: string;
+  nickname?: string;
+  planChoice?: ExecutorPlanChoice;
+  startAt?: Date;
+  comment?: string;
+}
+
+export interface ModerationPlansSessionState {
+  threads: Record<string, ModerationPlanWizardState | undefined>;
+}
+
 export type SupportRequestStatus = 'idle' | 'awaiting_message';
 
 export interface SupportSessionState {
@@ -247,6 +267,7 @@ export interface SessionState {
   executor: ExecutorFlowState;
   client: ClientFlowState;
   ui: UiSessionState;
+  moderationPlans: ModerationPlansSessionState;
   support: SupportSessionState;
   onboarding: OnboardingState;
 }

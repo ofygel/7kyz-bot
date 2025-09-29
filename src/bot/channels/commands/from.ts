@@ -1,6 +1,6 @@
 import { Telegraf } from 'telegraf';
 
-import type { BotContext } from '../../types';
+import type { BotContext, ModerationPlanWizardState } from '../../types';
 import { config, logger } from '../../../config';
 import type {
   ExecutorPlanChoice,
@@ -27,6 +27,10 @@ import {
   EXECUTOR_PLAN_UNBLOCK_ACTION,
 } from '../../../services/executorPlans/actions';
 import { getExecutorPlanById } from '../../../db/executorPlans';
+import { ui } from '../../ui';
+import { buildInlineKeyboard, buildConfirmCancelKeyboard } from '../../keyboards/common';
+import { wrapCallbackData } from '../../services/callbackTokens';
+import { buildExecutorPlanActionKeyboard } from '../../ui/executorPlans';
 
 const VERIFY_COMMANDS = ['from', 'form'] as const;
 
@@ -63,13 +67,27 @@ const MONTHS: Record<string, number> = {
 
 const PLAN_VALUES: ExecutorPlanChoice[] = ['7', '15', '30'];
 
-interface ParsedPlanForm {
-  phone?: string;
-  nickname?: string;
-  planChoice?: ExecutorPlanChoice;
-  startAt?: Date;
-  comment?: string;
-}
+const CALLBACK_TTL_SECONDS = 7 * 24 * 60 * 60;
+const WIZARD_ACTION_PREFIX = 'executor-plan-wizard';
+const PLAN_SELECT_ACTION = `${WIZARD_ACTION_PREFIX}:plan`;
+const SUMMARY_CONFIRM_ACTION = `${WIZARD_ACTION_PREFIX}:confirm`;
+const SUMMARY_CANCEL_ACTION = `${WIZARD_ACTION_PREFIX}:cancel`;
+
+const PLAN_SELECT_CALLBACK_PATTERN = new RegExp(
+  `^${PLAN_SELECT_ACTION}:(7|15|30)$`,
+);
+const SUMMARY_CONFIRM_CALLBACK_PATTERN = new RegExp(
+  `^${SUMMARY_CONFIRM_ACTION}$`,
+);
+const SUMMARY_CANCEL_CALLBACK_PATTERN = new RegExp(
+  `^${SUMMARY_CANCEL_ACTION}$`,
+);
+
+const PLAN_CHOICE_LABELS: Record<ExecutorPlanChoice, string> = {
+  '7': 'План на 7 дней',
+  '15': 'План на 15 дней',
+  '30': 'План на 30 дней',
+};
 
 const sanitisePhone = (value: string): string | null => {
   const cleaned = value.replace(/[^\d+]/g, '');
@@ -90,12 +108,6 @@ const sanitisePhone = (value: string): string | null => {
   }
 
   return null;
-};
-
-const parsePlanChoice = (value: string): ExecutorPlanChoice | null => {
-  const digits = value.replace(/\D+/g, '');
-  const candidate = PLAN_VALUES.find((option) => option === digits);
-  return candidate ?? null;
 };
 
 const parseMonthName = (token: string): number | null => {
@@ -155,148 +167,6 @@ const parseStartDate = (value: string): Date | null => {
   return null;
 };
 
-const splitKeyValue = (line: string): { key: string; value: string } | null => {
-  const match = line.match(/^([^:=\-]+)[:=\-]\s*(.+)$/u);
-  if (!match) {
-    return null;
-  }
-
-  const [, keyRaw, valueRaw] = match;
-  const key = keyRaw.trim().toLowerCase();
-  const value = valueRaw.trim();
-  if (!key || !value) {
-    return null;
-  }
-
-  return { key, value };
-};
-
-const parsePlanForm = (payload: string): ParsedPlanForm => {
-  const result: ParsedPlanForm = {};
-  if (!payload.trim()) {
-    return result;
-  }
-
-  const lines = payload
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-  const remainder: string[] = [];
-
-  for (const line of lines) {
-    const kv = splitKeyValue(line);
-    if (kv) {
-      if (!result.phone && /(тел|phone|номер)/u.test(kv.key)) {
-        const phone = sanitisePhone(kv.value);
-        if (phone) {
-          result.phone = phone;
-          continue;
-        }
-      }
-
-      if (!result.nickname && /(ник|id|tg|user)/u.test(kv.key)) {
-        result.nickname = kv.value.trim();
-        continue;
-      }
-
-      if (!result.planChoice && /(план|plan|тариф)/u.test(kv.key)) {
-        const choice = parsePlanChoice(kv.value);
-        if (choice) {
-          result.planChoice = choice;
-          continue;
-        }
-      }
-
-      if (!result.startAt && /(старт|start|дата|начало)/u.test(kv.key)) {
-        const date = parseStartDate(kv.value);
-        if (date) {
-          result.startAt = date;
-          continue;
-        }
-      }
-
-      if (!result.comment && /(комм|comment|заметка)/u.test(kv.key)) {
-        result.comment = kv.value;
-        continue;
-      }
-    }
-
-    remainder.push(line);
-  }
-
-  const remainderJoined = remainder.join(' ');
-
-  if (!result.phone) {
-    const phoneMatch = remainderJoined.match(/(\+?\d[\d\s()-]{6,})/);
-    if (phoneMatch) {
-      const phone = sanitisePhone(phoneMatch[1]);
-      if (phone) {
-        result.phone = phone;
-      }
-    }
-  }
-
-  if (!result.nickname) {
-    const nickMatch = remainderJoined.match(/@([a-z0-9_]{3,32})/i);
-    if (nickMatch) {
-      result.nickname = `@${nickMatch[1]}`;
-    }
-  }
-
-  if (!result.planChoice) {
-    const planMatch = remainderJoined.match(/\b(7|15|30)\b/);
-    if (planMatch) {
-      result.planChoice = planMatch[1] as ExecutorPlanChoice;
-    }
-  }
-
-  if (!result.startAt) {
-    const dateMatch = remainder.find((line) => /\d/.test(line));
-    if (dateMatch) {
-      const parsed = parseStartDate(dateMatch);
-      if (parsed) {
-        result.startAt = parsed;
-      }
-    }
-  }
-
-  if (!result.comment && remainder.length > 0) {
-    result.comment = remainder.join('\n');
-  }
-
-  if (!result.startAt) {
-    result.startAt = new Date();
-  }
-
-  return result;
-};
-
-const extractPayload = (ctx: BotContext, command: string): string => {
-  const message = ctx.message;
-  if (!message) {
-    return '';
-  }
-
-  const text = 'text' in message ? message.text ?? '' : '';
-  let replyText = '';
-  if ('reply_to_message' in message) {
-    const replyCandidate = (message as { reply_to_message?: unknown }).reply_to_message;
-    if (replyCandidate && typeof replyCandidate === 'object') {
-      const reply = replyCandidate as { text?: unknown; caption?: unknown };
-      if (typeof reply.text === 'string') {
-        replyText = reply.text.trim();
-      } else if (typeof reply.caption === 'string') {
-        replyText = reply.caption.trim();
-      }
-    }
-  }
-  const pattern = new RegExp(`^/${command}(?:@\\w+)?\\s*`, 'i');
-  const ownPayload = text.replace(pattern, '').trim();
-
-  return [ownPayload, replyText].filter(Boolean).join('\n').trim();
-};
-
 const ensureVerifyChannel = (ctx: BotContext): boolean => {
   const expectedId = config.channels.bindVerifyChannelId;
   if (!expectedId) {
@@ -312,26 +182,559 @@ const ensureVerifyChannel = (ctx: BotContext): boolean => {
   return true;
 };
 
-const buildPlanInput = (
+const formatPlanChoiceLabel = (choice: ExecutorPlanChoice): string =>
+  PLAN_CHOICE_LABELS[choice] ?? `План ${choice} дней`;
+
+const ensureModerationPlansState = (ctx: BotContext): void => {
+  if (!ctx.session.moderationPlans) {
+    ctx.session.moderationPlans = { threads: {} };
+    return;
+  }
+
+  if (!ctx.session.moderationPlans.threads) {
+    ctx.session.moderationPlans.threads = {};
+  }
+};
+
+const getThreadIdFromContext = (ctx: BotContext): number | undefined => {
+  const message = ctx.message;
+  if (message && typeof message === 'object' && 'message_thread_id' in message) {
+    const threadId = (message as { message_thread_id?: number }).message_thread_id;
+    if (typeof threadId === 'number') {
+      return threadId;
+    }
+  }
+
+  const callbackMessage =
+    ctx.callbackQuery && 'message' in ctx.callbackQuery
+      ? ctx.callbackQuery.message
+      : undefined;
+  if (callbackMessage && typeof callbackMessage === 'object' && 'message_thread_id' in callbackMessage) {
+    const threadId = (callbackMessage as { message_thread_id?: number }).message_thread_id;
+    if (typeof threadId === 'number') {
+      return threadId;
+    }
+  }
+
+  return undefined;
+};
+
+const getThreadKey = (threadId: number | undefined): string =>
+  `thread:${threadId ?? 0}`;
+
+const getWizardState = (
   ctx: BotContext,
-  parsed: ParsedPlanForm,
+  threadKey: string,
+): ModerationPlanWizardState | undefined => {
+  ensureModerationPlansState(ctx);
+  return ctx.session.moderationPlans.threads[threadKey];
+};
+
+const setWizardState = (
+  ctx: BotContext,
+  threadKey: string,
+  state: ModerationPlanWizardState | undefined,
+): void => {
+  ensureModerationPlansState(ctx);
+  if (!state) {
+    delete ctx.session.moderationPlans.threads[threadKey];
+    return;
+  }
+
+  ctx.session.moderationPlans.threads[threadKey] = state;
+};
+
+const buildWizardStepId = (threadKey: string, step: string): string =>
+  `moderation:from:${threadKey}:${step}`;
+
+const getWizardStepIds = (threadKey: string): string[] => [
+  buildWizardStepId(threadKey, 'phone'),
+  buildWizardStepId(threadKey, 'nickname'),
+  buildWizardStepId(threadKey, 'plan'),
+  buildWizardStepId(threadKey, 'details'),
+  buildWizardStepId(threadKey, 'summary'),
+];
+
+const clearWizardSteps = async (
+  ctx: BotContext,
+  threadKey: string,
+  options: { keepSummary?: boolean } = {},
+): Promise<void> => {
+  const ids = getWizardStepIds(threadKey);
+  const targetIds = options.keepSummary ? ids.slice(0, -1) : ids;
+  if (targetIds.length === 0) {
+    return;
+  }
+
+  await ui.clear(ctx, { ids: targetIds, cleanupOnly: false });
+};
+
+const formatDate = (value: Date): string =>
+  new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'medium',
+    timeZone: config.timezone,
+  }).format(value);
+
+const formatDateTime = (value: Date): string =>
+  new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: config.timezone,
+  }).format(value);
+
+const buildPlanChoiceKeyboard = (): ReturnType<typeof buildInlineKeyboard> => {
+  const secret = config.bot.callbackSignSecret ?? config.bot.token;
+  const rows = [
+    PLAN_VALUES.map((choice) => ({
+      label: PLAN_CHOICE_LABELS[choice],
+      action: wrapCallbackData(`${PLAN_SELECT_ACTION}:${choice}`, {
+        secret,
+        ttlSeconds: CALLBACK_TTL_SECONDS,
+      }),
+    })),
+  ];
+
+  return buildInlineKeyboard(rows);
+};
+
+const renderPhoneStep = async (
+  ctx: BotContext,
+  threadKey: string,
+  state: ModerationPlanWizardState,
+): Promise<void> => {
+  const lines = state.phone
+    ? [
+        `✅ Телефон сохранён: ${state.phone}`,
+        '',
+        'Чтобы изменить, отправьте новый номер телефона.',
+      ]
+    : [
+        '📞 Введите номер телефона исполнителя.',
+        'Например: +77001234567.',
+      ];
+
+  await ui.step(ctx, {
+    id: buildWizardStepId(threadKey, 'phone'),
+    text: lines.join('\n'),
+  });
+};
+
+const renderNicknameStep = async (
+  ctx: BotContext,
+  threadKey: string,
+  state: ModerationPlanWizardState,
+): Promise<void> => {
+  const lines = state.nickname
+    ? [
+        `✅ Ник/ID сохранён: ${state.nickname}`,
+        '',
+        'Чтобы очистить поле, отправьте «-».',
+      ]
+    : [
+        '👤 Укажите ник или ID исполнителя.',
+        'Если данных нет, отправьте «-».',
+      ];
+
+  await ui.step(ctx, {
+    id: buildWizardStepId(threadKey, 'nickname'),
+    text: lines.join('\n'),
+  });
+};
+
+const renderPlanStep = async (
+  ctx: BotContext,
+  threadKey: string,
+  state: ModerationPlanWizardState,
+): Promise<void> => {
+  const lines = state.planChoice
+    ? [
+        `✅ Выбран тариф: ${formatPlanChoiceLabel(state.planChoice)}.`,
+        '',
+        'Можно выбрать другой вариант кнопками ниже.',
+      ]
+    : [
+        '📦 Выберите тариф плана.',
+        'Нажмите на одну из кнопок ниже.',
+      ];
+
+  await ui.step(ctx, {
+    id: buildWizardStepId(threadKey, 'plan'),
+    text: lines.join('\n'),
+    keyboard: buildPlanChoiceKeyboard(),
+  });
+};
+
+const renderDetailsStep = async (
+  ctx: BotContext,
+  threadKey: string,
+  state: ModerationPlanWizardState,
+): Promise<void> => {
+  const lines: string[] = [];
+  if (state.startAt || state.comment) {
+    lines.push('✅ Дополнительные данные сохранены.');
+    if (state.startAt) {
+      lines.push(`Дата старта: ${formatDate(state.startAt)}`);
+    }
+    if (state.comment) {
+      lines.push(`Комментарий: ${state.comment}`);
+    }
+    lines.push('', 'Чтобы изменить данные, отправьте новое сообщение или «-» для сброса.');
+  } else {
+    lines.push('📝 При необходимости укажите дату старта и комментарий.');
+    lines.push('Можно отправить дату отдельной строкой или вместе с комментарием.');
+    lines.push('Например: 2024-02-01', 'или: 2024-02-01 Комментарий');
+    lines.push('Отправьте «-», чтобы пропустить шаг.');
+  }
+
+  await ui.step(ctx, {
+    id: buildWizardStepId(threadKey, 'details'),
+    text: lines.join('\n'),
+  });
+};
+
+const renderSummaryStep = async (
+  ctx: BotContext,
+  threadKey: string,
+  state: ModerationPlanWizardState,
+): Promise<void> => {
+  if (!state.phone || !state.planChoice) {
+    return;
+  }
+
+  const startAt = state.startAt ?? new Date();
+  state.startAt = startAt;
+
+  const lines = [
+    '📋 Проверьте данные плана:',
+    `Телефон: ${state.phone}`,
+  ];
+
+  if (state.nickname) {
+    lines.push(`Ник/ID: ${state.nickname}`);
+  }
+
+  lines.push(`Тариф: ${formatPlanChoiceLabel(state.planChoice)}`);
+  lines.push(`Старт: ${formatDateTime(startAt)}`);
+  lines.push(`Комментарий: ${state.comment ?? '—'}`);
+  lines.push('', 'Нажмите «Сохранить», чтобы создать запись, или «Отмена», чтобы сбросить форму.');
+
+  const secret = config.bot.callbackSignSecret ?? config.bot.token;
+  const keyboard = buildConfirmCancelKeyboard(
+    wrapCallbackData(SUMMARY_CONFIRM_ACTION, {
+      secret,
+      ttlSeconds: CALLBACK_TTL_SECONDS,
+    }),
+    wrapCallbackData(SUMMARY_CANCEL_ACTION, {
+      secret,
+      ttlSeconds: CALLBACK_TTL_SECONDS,
+    }),
+    { confirmLabel: '✅ Сохранить', cancelLabel: '❌ Отмена', layout: 'horizontal' },
+  );
+
+  await ui.step(ctx, {
+    id: buildWizardStepId(threadKey, 'summary'),
+    text: lines.join('\n'),
+    keyboard,
+  });
+};
+
+interface WizardDetailsResult {
+  skip: boolean;
+  startAt?: Date;
+  comment?: string;
+}
+
+const parseWizardDetailsInput = (value: string): WizardDetailsResult => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { skip: true };
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (lower === '-' || lower === 'нет') {
+    return { skip: true };
+  }
+
+  const lines = trimmed.split(/\r?\n/u);
+  const firstLine = lines[0]?.trim() ?? '';
+  const firstLineDate = firstLine ? parseStartDate(firstLine) : null;
+  if (firstLineDate) {
+    const comment = lines.slice(1).join('\n').trim();
+    return {
+      skip: false,
+      startAt: firstLineDate,
+      comment: comment.length > 0 ? comment : undefined,
+    } satisfies WizardDetailsResult;
+  }
+
+  const tokens = trimmed.split(/\s+/u);
+  const firstToken = tokens[0] ?? '';
+  const tokenDate = firstToken ? parseStartDate(firstToken) : null;
+  if (tokenDate) {
+    const remainder = trimmed.slice(firstToken.length).trim();
+    return {
+      skip: false,
+      startAt: tokenDate,
+      comment: remainder.length > 0 ? remainder : undefined,
+    } satisfies WizardDetailsResult;
+  }
+
+  const inlineDate = parseStartDate(trimmed);
+  if (inlineDate) {
+    return { skip: false, startAt: inlineDate } satisfies WizardDetailsResult;
+  }
+
+  return { skip: false, comment: trimmed } satisfies WizardDetailsResult;
+};
+
+const buildPlanInputFromState = (
+  ctx: BotContext,
+  state: ModerationPlanWizardState,
 ): ExecutorPlanInsertInput | null => {
-  if (!parsed.phone || !parsed.planChoice || !parsed.startAt) {
+  if (!state.phone || !state.planChoice) {
     return null;
   }
 
-  const message = ctx.message;
-  const threadId = message && 'message_thread_id' in message ? message.message_thread_id : undefined;
+  const startAt = state.startAt ?? new Date();
+  const chatId = ctx.chat?.id ?? config.channels.bindVerifyChannelId ?? 0;
 
   return {
-    chatId: ctx.chat?.id ?? config.channels.bindVerifyChannelId ?? 0,
-    threadId,
-    phone: parsed.phone,
-    nickname: parsed.nickname,
-    planChoice: parsed.planChoice,
-    startAt: parsed.startAt,
-    comment: parsed.comment,
+    chatId,
+    threadId: state.threadId,
+    phone: state.phone,
+    nickname: state.nickname,
+    planChoice: state.planChoice,
+    startAt,
+    comment: state.comment?.trim() || undefined,
   } satisfies ExecutorPlanInsertInput;
+};
+
+const startWizard = async (
+  ctx: BotContext,
+  threadKey: string,
+  threadId: number | undefined,
+): Promise<void> => {
+  await clearWizardSteps(ctx, threadKey);
+  const state: ModerationPlanWizardState = { step: 'phone', threadId };
+  setWizardState(ctx, threadKey, state);
+  await renderPhoneStep(ctx, threadKey, state);
+};
+
+const handleWizardTextMessage = async (ctx: BotContext): Promise<boolean> => {
+  const expectedId = config.channels.bindVerifyChannelId;
+  if (expectedId && ctx.chat?.id !== expectedId) {
+    return false;
+  }
+
+  const message = ctx.message;
+  if (!message || typeof message !== 'object' || !('text' in message)) {
+    return false;
+  }
+
+  const text = typeof message.text === 'string' ? message.text.trim() : '';
+  if (!text || text.startsWith('/')) {
+    return false;
+  }
+
+  const threadId = 'message_thread_id' in message ? message.message_thread_id : undefined;
+  const threadKey = getThreadKey(typeof threadId === 'number' ? threadId : undefined);
+  const state = getWizardState(ctx, threadKey);
+  if (!state) {
+    return false;
+  }
+
+  switch (state.step) {
+    case 'phone': {
+      const phone = sanitisePhone(text);
+      if (!phone) {
+        await ctx.reply('Не удалось распознать номер. Используйте формат +77001234567.');
+        return true;
+      }
+
+      state.phone = phone;
+      state.step = 'nickname';
+      await renderPhoneStep(ctx, threadKey, state);
+      await renderNicknameStep(ctx, threadKey, state);
+      return true;
+    }
+    case 'nickname': {
+      if (text === '-' || text.toLowerCase() === 'нет') {
+        state.nickname = undefined;
+      } else {
+        state.nickname = text;
+      }
+
+      state.step = 'plan';
+      await renderNicknameStep(ctx, threadKey, state);
+      await renderPlanStep(ctx, threadKey, state);
+      return true;
+    }
+    case 'plan': {
+      await ctx.reply('Выберите тариф с помощью кнопок под сообщением.');
+      return true;
+    }
+    case 'details':
+    case 'summary': {
+      const details = parseWizardDetailsInput(text);
+      if (details.skip) {
+        state.startAt = undefined;
+        state.comment = undefined;
+      } else {
+        if (details.startAt) {
+          state.startAt = details.startAt;
+        }
+        if (details.comment !== undefined) {
+          state.comment = details.comment;
+        }
+      }
+
+      state.step = 'summary';
+      await renderDetailsStep(ctx, threadKey, state);
+      await renderSummaryStep(ctx, threadKey, state);
+      return true;
+    }
+    default:
+      return false;
+  }
+};
+
+const handlePlanSelection = async (
+  ctx: BotContext,
+  threadKey: string,
+  choice: ExecutorPlanChoice,
+): Promise<void> => {
+  const state = getWizardState(ctx, threadKey);
+  if (!state) {
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('Форма не найдена');
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer plan selection callback without state');
+      }
+    }
+    return;
+  }
+
+  if (!state.phone) {
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('Сначала укажите номер телефона');
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer plan selection callback without phone');
+      }
+    }
+    return;
+  }
+
+  state.planChoice = choice;
+  state.step = 'details';
+
+  if (typeof ctx.answerCbQuery === 'function') {
+    try {
+      await ctx.answerCbQuery(`Выбран тариф: ${PLAN_CHOICE_LABELS[choice]}`);
+    } catch (error) {
+      logger.debug({ err: error }, 'Failed to answer plan selection callback');
+    }
+  }
+
+  await renderPlanStep(ctx, threadKey, state);
+  await renderDetailsStep(ctx, threadKey, state);
+};
+
+const handleSummaryDecision = async (
+  ctx: BotContext,
+  threadKey: string,
+  decision: 'confirm' | 'cancel',
+): Promise<void> => {
+  const state = getWizardState(ctx, threadKey);
+  if (!state) {
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('Форма устарела', { show_alert: true });
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer summary callback without state');
+      }
+    }
+    return;
+  }
+
+  if (decision === 'cancel') {
+    await clearWizardSteps(ctx, threadKey, { keepSummary: true });
+    await ui.step(ctx, {
+      id: buildWizardStepId(threadKey, 'summary'),
+      text: 'Создание плана отменено.',
+    });
+    setWizardState(ctx, threadKey, undefined);
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('Операция отменена');
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer cancellation callback');
+      }
+    }
+    return;
+  }
+
+  if (!state.phone || !state.planChoice) {
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('Заполните все поля', { show_alert: true });
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer summary callback without data');
+      }
+    }
+    return;
+  }
+
+  state.startAt = state.startAt ?? new Date();
+  const input = buildPlanInputFromState(ctx, state);
+  if (!input) {
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('Не удалось собрать данные', { show_alert: true });
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer summary callback without input');
+      }
+    }
+    return;
+  }
+
+  const mutation: ExecutorPlanMutation = { type: 'create', payload: input };
+
+  await handleMutationWithFallback(ctx, mutation, async (outcome) => {
+    if (!outcome || outcome.type !== 'created') {
+      await ctx.reply('Не удалось создать запись. Попробуйте позже.');
+      return;
+    }
+
+    const plan = outcome.plan;
+
+    await clearWizardSteps(ctx, threadKey, { keepSummary: true });
+    await ui.step(ctx, {
+      id: buildWizardStepId(threadKey, 'summary'),
+      text: ['План сохранён ✅', buildPlanSummary(plan)].join('\n\n'),
+    });
+    setWizardState(ctx, threadKey, undefined);
+
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('План сохранён');
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer confirmation callback');
+      }
+    }
+
+    try {
+      await ctx.telegram.sendMessage(plan.chatId, buildPlanSummary(plan), {
+        message_thread_id: plan.threadId ?? undefined,
+        reply_markup: buildExecutorPlanActionKeyboard(plan),
+      });
+    } catch (error) {
+      logger.error({ err: error, planId: plan.id }, 'Failed to post executor plan card');
+    }
+
+    await scheduleExecutorPlanReminder(plan);
+  });
 };
 
 const sendQueueAck = async (ctx: BotContext): Promise<void> => {
@@ -374,38 +777,14 @@ const handleMutationWithFallback = async (
   }
 };
 
-const handleCreateCommand = async (ctx: BotContext, command: string): Promise<void> => {
+const handleFromCommand = async (ctx: BotContext): Promise<void> => {
   if (!ensureVerifyChannel(ctx)) {
     return;
   }
 
-  const payload = extractPayload(ctx, command);
-  const parsed = parsePlanForm(payload);
-  const input = buildPlanInput(ctx, parsed);
-
-  if (!input) {
-    await ctx.reply(
-      [
-        'Не удалось разобрать данные формы. Укажите телефон и тариф (7/15/30).',
-        'Дата старта будет проставлена автоматически, если не указана явно.',
-        'Пример:\n/from +77001234567 @nickname 7 Комментарий',
-      ].join('\n'),
-    );
-    return;
-  }
-
-  const mutation: ExecutorPlanMutation = { type: 'create', payload: input };
-
-  await handleMutationWithFallback(ctx, mutation, async (outcome) => {
-    if (!outcome || outcome.type !== 'created') {
-      await ctx.reply('Не удалось создать запись. Попробуйте позже.');
-      return;
-    }
-
-    const summary = buildPlanSummary(outcome.plan);
-    await ctx.reply(['План сохранён ✅', summary].join('\n\n'));
-    await scheduleExecutorPlanReminder(outcome.plan);
-  });
+  const threadId = getThreadIdFromContext(ctx);
+  const threadKey = getThreadKey(threadId);
+  await startWizard(ctx, threadKey, threadId);
 };
 
 const handleExtendCommand = async (ctx: BotContext, args: string[]): Promise<void> => {
@@ -680,8 +1059,49 @@ const handleEditCallback = async (ctx: BotContext, planId: number): Promise<void
 export const registerFromCommand = (bot: Telegraf<BotContext>): void => {
   VERIFY_COMMANDS.forEach((command) => {
     bot.command(command, async (ctx) => {
-      await handleCreateCommand(ctx, command);
+      await handleFromCommand(ctx);
     });
+  });
+
+  bot.on('text', async (ctx, next) => {
+    const handled = await handleWizardTextMessage(ctx);
+    if (handled) {
+      return;
+    }
+
+    await next();
+  });
+
+  bot.action(PLAN_SELECT_CALLBACK_PATTERN, async (ctx) => {
+    const data =
+      ctx.callbackQuery && 'data' in ctx.callbackQuery
+        ? ctx.callbackQuery.data
+        : undefined;
+    if (!data) {
+      return;
+    }
+
+    const match = data.match(PLAN_SELECT_CALLBACK_PATTERN);
+    if (!match) {
+      return;
+    }
+
+    const choice = match[1] as ExecutorPlanChoice;
+    const threadId = getThreadIdFromContext(ctx);
+    const threadKey = getThreadKey(threadId);
+    await handlePlanSelection(ctx, threadKey, choice);
+  });
+
+  bot.action(SUMMARY_CONFIRM_CALLBACK_PATTERN, async (ctx) => {
+    const threadId = getThreadIdFromContext(ctx);
+    const threadKey = getThreadKey(threadId);
+    await handleSummaryDecision(ctx, threadKey, 'confirm');
+  });
+
+  bot.action(SUMMARY_CANCEL_CALLBACK_PATTERN, async (ctx) => {
+    const threadId = getThreadIdFromContext(ctx);
+    const threadKey = getThreadKey(threadId);
+    await handleSummaryDecision(ctx, threadKey, 'cancel');
   });
 
   bot.command('extend', async (ctx) => {
@@ -762,6 +1182,14 @@ export const registerFromCommand = (bot: Telegraf<BotContext>): void => {
 };
 
 export const __testing = {
-  parsePlanForm,
-  buildPlanInput,
+  sanitisePhone,
+  parseStartDate,
+  parseWizardDetailsInput,
+  formatPlanChoiceLabel,
+  getThreadKey,
+  startWizard,
+  handleWizardTextMessage,
+  handlePlanSelection,
+  handleSummaryDecision,
+  buildPlanInputFromState,
 };

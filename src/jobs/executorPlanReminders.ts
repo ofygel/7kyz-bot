@@ -11,19 +11,11 @@ import {
 import type { ExecutorPlanRecord } from '../types';
 import { buildReminderMessage, REMINDER_OFFSETS_HOURS } from '../services/executorPlans/reminders';
 import {
-  EXECUTOR_PLAN_BLOCK_ACTION,
-  EXECUTOR_PLAN_EDIT_ACTION,
-  EXECUTOR_PLAN_EXTEND_ACTION,
-  EXECUTOR_PLAN_TOGGLE_MUTE_ACTION,
-  EXECUTOR_PLAN_UNBLOCK_ACTION,
-} from '../services/executorPlans/actions';
-import {
   flushExecutorPlanMutations,
   onExecutorPlanMutation,
   type ExecutorPlanMutationOutcome,
 } from '../infra/executorPlanQueue';
-import { wrapCallbackData } from '../bot/services/callbackTokens';
-import type { InlineKeyboardMarkup } from 'telegraf/typings/core/types/typegram';
+import { buildExecutorPlanActionKeyboard } from '../bot/ui/executorPlans';
 
 const QUEUE_NAME = 'executor-plan-reminders';
 const REMINDER_JOB_NAME = 'executor-plan-reminder';
@@ -67,39 +59,6 @@ const removeScheduledReminders = async (planId: number): Promise<void> => {
       logger.debug({ err: error, planId, jobId: id }, 'Failed to remove executor plan reminder job');
     }
   }
-};
-
-const buildReminderKeyboard = (plan: ExecutorPlanRecord): InlineKeyboardMarkup => {
-  const secret = config.bot.callbackSignSecret ?? config.bot.token;
-  const wrap = (raw: string): string =>
-    wrapCallbackData(raw, { secret, ttlSeconds: 7 * 24 * 60 * 60 });
-
-  const extend = (days: number): string =>
-    wrap(`${EXECUTOR_PLAN_EXTEND_ACTION}:${plan.id}:${days}`);
-
-  const blockAction = wrap(`${EXECUTOR_PLAN_BLOCK_ACTION}:${plan.id}`);
-  const unblockAction = wrap(`${EXECUTOR_PLAN_UNBLOCK_ACTION}:${plan.id}`);
-  const toggleMuteAction = wrap(`${EXECUTOR_PLAN_TOGGLE_MUTE_ACTION}:${plan.id}`);
-  const editAction = wrap(`${EXECUTOR_PLAN_EDIT_ACTION}:${plan.id}`);
-
-  const rows: InlineKeyboardMarkup['inline_keyboard'] = [
-    [
-      { text: '+7', callback_data: extend(7) },
-      { text: '+15', callback_data: extend(15) },
-      { text: '+30', callback_data: extend(30) },
-    ],
-    [
-      { text: '⛔', callback_data: blockAction },
-      { text: plan.muted ? '🔔' : '🔕', callback_data: toggleMuteAction },
-      { text: '✏️', callback_data: editAction },
-    ],
-  ];
-
-  if (plan.status === 'blocked') {
-    rows.push([{ text: '✅ Разблокировать', callback_data: unblockAction }]);
-  }
-
-  return { inline_keyboard: rows } satisfies InlineKeyboardMarkup;
 };
 
 const scheduleReminder = async (plan: ExecutorPlanRecord): Promise<void> => {
@@ -159,7 +118,7 @@ const postReminderMessage = async (
   reminderIndex: number,
 ): Promise<void> => {
   const message = buildReminderMessage(plan, reminderIndex);
-  const keyboard = buildReminderKeyboard(plan);
+  const keyboard = buildExecutorPlanActionKeyboard(plan);
 
   try {
     await telegram.sendMessage(plan.chatId, message, {
