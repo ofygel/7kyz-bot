@@ -52,6 +52,7 @@ const processedMutations: RecordedMutation[] = [];
         nickname: payload.nickname,
         planChoice: payload.planChoice,
         startAt: payload.startAt,
+        endsAt: payload.endsAt ?? payload.startAt,
         comment: payload.comment,
         status: 'active',
         muted: false,
@@ -106,7 +107,7 @@ process.env.WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN ?? 'example.com';
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'secret';
 
 void (async () => {
-  const { __testing } = await import('../src/bot/channels/commands/from');
+  const { __testing } = await import('../src/bot/channels/commands/form');
 
   const threadId = 555;
   const threadKey = __testing.getThreadKey(threadId);
@@ -246,7 +247,7 @@ void (async () => {
   );
 
   assert.ok(
-    clearLog.some((entry) => Array.isArray(entry.ids) && entry.ids.includes(`moderation:from:${threadKey}:phone`)),
+    clearLog.some((entry) => Array.isArray(entry.ids) && entry.ids.includes(`moderation:form:${threadKey}:phone`)),
     'Перед финальным сообщением мастер должен очищать промежуточные шаги',
   );
 
@@ -273,5 +274,5 @@ void (async () => {
 
   assert.equal(replies.length, 0, 'Мастер не должен отправлять дополнительные сообщения через reply');
 
-  console.log('from command wizard flow test: OK');
+  console.log('form command wizard flow test: OK');
 })();

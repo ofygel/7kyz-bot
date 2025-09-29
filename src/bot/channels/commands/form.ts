@@ -245,7 +245,7 @@ const setWizardState = (
 };
 
 const buildWizardStepId = (threadKey: string, step: string): string =>
-  `moderation:from:${threadKey}:${step}`;
+  `moderation:form:${threadKey}:${step}`;
 
 const getWizardStepIds = (threadKey: string): string[] => [
   buildWizardStepId(threadKey, 'phone'),
@@ -784,7 +784,7 @@ const handleMutationWithFallback = async (
   }
 };
 
-const handleFromCommand = async (ctx: BotContext): Promise<void> => {
+const handleFormCommand = async (ctx: BotContext): Promise<void> => {
   if (!ensureVerifyChannel(ctx)) {
     return;
   }
@@ -1063,10 +1063,10 @@ const handleEditCallback = async (ctx: BotContext, planId: number): Promise<void
   await ctx.reply(`Чтобы обновить комментарий, выполните команду:\n/extend ${planId} comment <новый текст>`);
 };
 
-export const registerFromCommand = (bot: Telegraf<BotContext>): void => {
+export const registerFormCommand = (bot: Telegraf<BotContext>): void => {
   VERIFY_COMMANDS.forEach((command) => {
     bot.command(command, async (ctx) => {
-      await handleFromCommand(ctx);
+      await handleFormCommand(ctx);
     });
   });
 
