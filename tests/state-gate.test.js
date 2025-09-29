@@ -19,7 +19,7 @@ ensureEnv('WEBHOOK_SECRET', 'secret');
 
 const { stateGate } = require('../src/bot/middlewares/stateGate');
 
-test('stateGate allows clients with trial_expired status to continue', async () => {
+test('stateGate allows clients with trial_expired status to reach renderOrdersList', async () => {
   const replies = [];
 
   const ctx = {
@@ -40,12 +40,19 @@ test('stateGate allows clients with trial_expired status to continue', async () 
 
   const gate = stateGate();
   let nextCalled = false;
+  let renderOrdersListReached = false;
 
   await gate(ctx, async () => {
     nextCalled = true;
+    renderOrdersListReached = true;
   });
 
   assert.equal(nextCalled, true, 'Client middleware should proceed for trial_expired users');
+  assert.equal(
+    renderOrdersListReached,
+    true,
+    'Client flow should reach renderOrdersList after passing through middleware',
+  );
   assert.equal(replies.length, 0, 'Client should not receive subscription warnings');
 });
 
