@@ -111,6 +111,9 @@ const formatTrialStatus = (user: AuthUser): string => {
   return deadline ? `активен до ${deadline}` : 'активен';
 };
 
+const shouldHideSubscriptionForUser = (ctx: BotContext): boolean =>
+  ctx.auth?.user.role === 'client';
+
 const PERFORMANCE_LABELS: Record<string, string> = {
   completionRate: 'Доля завершённых заказов',
   ordersCompleted: 'Выполнено заказов',
@@ -198,7 +201,9 @@ export const buildProfileCardText = (ctx: BotContext): string => {
 
   lines.push('');
   lines.push(`Верификация: ${formatVerificationStatus(authUser)}`);
-  lines.push(`Подписка: ${formatSubscriptionStatus(authUser)}`);
+  if (!shouldHideSubscriptionForUser(ctx)) {
+    lines.push(`Подписка: ${formatSubscriptionStatus(authUser)}`);
+  }
   lines.push(`Пробный период: ${formatTrialStatus(authUser)}`);
   lines.push(`Активный заказ: ${authUser.hasActiveOrder ? 'да' : 'нет'}`);
 
@@ -224,7 +229,7 @@ const buildProfileCardKeyboard = (
     rows.push([{ label: '🏙️ Сменить город', action: options.changeCityAction }]);
   }
 
-  if (options.subscriptionAction) {
+  if (options.subscriptionAction && !shouldHideSubscriptionForUser(ctx)) {
     rows.push([{ label: '💳 Подписка', action: options.subscriptionAction }]);
   }
 

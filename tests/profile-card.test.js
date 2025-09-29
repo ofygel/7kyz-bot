@@ -79,7 +79,7 @@ test('buildProfileCardText enriches client profile with statuses and metrics', (
   const text = buildProfileCardText(ctx);
 
   assert.match(text, /Верификация: на проверке/);
-  assert.match(text, /Подписка: пробный доступ/);
+  assert.doesNotMatch(text, /Подписка:/);
   assert.match(text, /Пробный период: активен до/);
   assert.match(text, /Активный заказ: нет/);
   assert.match(text, /Показатели:/);
@@ -97,10 +97,15 @@ test('buildProfileCardText enriches client profile with statuses and metrics', (
   const labels = keyboard.inline_keyboard.map((row) => row.map((button) => button.text));
   assert.deepEqual(labels, [
     ['🏙️ Сменить город'],
-    ['💳 Подписка'],
     ['🆘 Помощь'],
     ['⬅ Назад', '🏠 Главное меню'],
   ]);
+
+  for (const row of labels) {
+    for (const label of row) {
+      assert.notEqual(label, '💳 Подписка');
+    }
+  }
 
   const cityButton = keyboard.inline_keyboard[0][0];
   const cityDecoded = tryDecodeCallbackData(cityButton.callback_data);
@@ -108,7 +113,12 @@ test('buildProfileCardText enriches client profile with statuses and metrics', (
   assert.equal(cityDecoded.wrapped.raw, 'client:menu:city');
   assert.ok(cityDecoded.wrapped.nonce);
 
-  const supportButtonClient = keyboard.inline_keyboard[2][0];
+  const supportRowClient = keyboard.inline_keyboard.find((row) =>
+    row.some((button) => button.text === '🆘 Помощь'),
+  );
+  assert.ok(supportRowClient);
+  const supportButtonClient = supportRowClient.find((button) => button.text === '🆘 Помощь');
+  assert.ok(supportButtonClient);
   const supportDecodedClient = tryDecodeCallbackData(supportButtonClient.callback_data);
   assert.equal(supportDecodedClient.ok, true);
   assert.equal(supportDecodedClient.wrapped.raw, 'client:menu:support');
