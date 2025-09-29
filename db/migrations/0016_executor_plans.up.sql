@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS executor_plans (
   nickname TEXT,
   plan_choice TEXT NOT NULL CHECK (plan_choice IN ('7','15','30')),
   start_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ NOT NULL,
   comment TEXT,
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','blocked','completed','cancelled')),
   muted BOOLEAN NOT NULL DEFAULT FALSE,
@@ -31,3 +32,6 @@ CREATE INDEX IF NOT EXISTS executor_plans_status_idx
 
 CREATE INDEX IF NOT EXISTS executor_plans_start_idx
   ON executor_plans (start_at);
+
+CREATE INDEX IF NOT EXISTS executor_plans_ends_idx
+  ON executor_plans (ends_at);
