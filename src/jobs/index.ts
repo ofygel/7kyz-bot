@@ -8,6 +8,7 @@ import {
   startExecutorPlanReminderService,
   stopExecutorPlanReminderService,
 } from './executorPlanReminders';
+import { startUserPhoneSync, stopUserPhoneSync } from './userPhoneSync';
 
 let initialized = false;
 
@@ -20,6 +21,7 @@ export const registerJobs = (bot: Telegraf<BotContext>): void => {
   startInactivityNudger(bot);
   startMetricsReporter();
   startExecutorPlanReminderService(bot);
+  startUserPhoneSync();
   initialized = true;
 };
 
@@ -32,5 +34,6 @@ export const stopJobs = (): void => {
   stopSubscriptionScheduler();
   stopMetricsReporter();
   void stopExecutorPlanReminderService();
+  stopUserPhoneSync();
   initialized = false;
 };

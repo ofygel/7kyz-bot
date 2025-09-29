@@ -55,6 +55,7 @@ const loadExecutorAccessFromCache = async (
 const saveExecutorAccessToCache = async (
   executorId: number,
   record: ExecutorOrderAccessRecord,
+  ttlSeconds = CACHE_TTL_SECONDS,
 ): Promise<void> => {
   const client = getRedisClient();
   if (!client) {
@@ -64,7 +65,7 @@ const saveExecutorAccessToCache = async (
   const cacheKey = formatCacheKey(executorId);
 
   try {
-    await client.set(cacheKey, JSON.stringify(record), 'EX', CACHE_TTL_SECONDS);
+    await client.set(cacheKey, JSON.stringify(record), 'EX', ttlSeconds);
   } catch (error) {
     logger.warn({ err: error, executorId }, 'Failed to save executor access cache');
   }
@@ -115,6 +116,14 @@ export const getExecutorOrderAccess = async (
   }
 
   return record;
+};
+
+export const primeExecutorOrderAccessCache = async (
+  executorId: number,
+  record: ExecutorOrderAccessRecord,
+  options?: { ttlSeconds?: number },
+): Promise<void> => {
+  await saveExecutorAccessToCache(executorId, record, options?.ttlSeconds);
 };
 
 export const hasExecutorOrderAccess = async (executorId: number): Promise<boolean> => {

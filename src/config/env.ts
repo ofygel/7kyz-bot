@@ -316,6 +316,7 @@ export interface AppConfig {
     subscription: string;
     metrics: string;
     paymentReminder: string;
+    phoneSyncIntervalMs: number;
   };
   tariff: TariffRates | null;
   subscriptions: {
@@ -398,6 +399,7 @@ export const loadConfig = (): AppConfig => {
       subscription: getCronExpression('JOBS_SUBSCRIPTION_CRON', '*/10 * * * *'),
       metrics: getCronExpression('JOBS_METRICS_CRON', '*/60 * * * * *'),
       paymentReminder: getCronExpression('JOBS_PAYMENT_REMINDER_CRON', '*/10 * * * *'),
+      phoneSyncIntervalMs: parsePositiveInt('JOBS_PHONE_SYNC_INTERVAL_MS', 5000),
     },
     tariff: parseGeneralTariff(),
     subscriptions: {
