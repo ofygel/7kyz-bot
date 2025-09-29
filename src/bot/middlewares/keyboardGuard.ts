@@ -71,14 +71,26 @@ export const keyboardGuard = (): MiddlewareFn<BotContext> => async (ctx, next) =
   }
 
   const executor = isExecutorUser(ctx);
+  const inClientMenu = CLIENT_WHITELIST.has(text);
+  const inExecutorMenu = EXECUTOR_WHITELIST.has(text);
 
-  if (EXECUTOR_WHITELIST.has(text) && !executor) {
-    await ctx.reply('Этот раздел доступен только исполнителям.', clientKeyboard());
+  if (inClientMenu) {
+    if (executor) {
+      await ctx.reply('Вы сейчас в режиме исполнителя. Используйте меню исполнителя ниже.', executorKeyboard());
+      return;
+    }
+
+    await next();
     return;
   }
 
-  if (CLIENT_WHITELIST.has(text) && executor) {
-    await ctx.reply('Вы сейчас в режиме исполнителя. Используйте меню исполнителя ниже.', executorKeyboard());
+  if (inExecutorMenu) {
+    if (!executor) {
+      await ctx.reply('Этот раздел доступен только исполнителям.', clientKeyboard());
+      return;
+    }
+
+    await next();
     return;
   }
 
