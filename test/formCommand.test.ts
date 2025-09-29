@@ -105,6 +105,7 @@ process.env.KASPI_NAME = process.env.KASPI_NAME ?? 'Test User';
 process.env.KASPI_PHONE = process.env.KASPI_PHONE ?? '+70000000000';
 process.env.WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN ?? 'example.com';
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'secret';
+process.env.SUB_TRIAL_DAYS = process.env.SUB_TRIAL_DAYS ?? '3';
 
 void (async () => {
   const { __testing } = await import('../src/bot/channels/commands/form');
@@ -354,6 +355,72 @@ void (async () => {
   );
 
   console.log('form command wizard channel_post flow test: OK');
+})();
+
+void (async () => {
+  const { __testing } = await import('../src/bot/channels/commands/form');
+
+  const trialThreadId = 999;
+  const trialThreadKey = __testing.getThreadKey(trialThreadId);
+
+  const trialSession = {
+    ephemeralMessages: [],
+    isAuthenticated: false,
+    safeMode: false,
+    isDegraded: false,
+    awaitingPhone: false,
+    authSnapshot: {} as Record<string, unknown>,
+    executor: {} as Record<string, unknown>,
+    client: {} as Record<string, unknown>,
+    ui: { steps: {}, homeActions: [] },
+    moderationPlans: {
+      threads: {
+        [trialThreadKey]: {
+          step: 'plan',
+          threadId: trialThreadId,
+          phone: '+77001234567',
+        },
+      },
+    },
+    support: { status: 'idle' },
+    onboarding: { active: false },
+  } as unknown as BotContext['session'];
+
+  const trialCallbackAnswers: string[] = [];
+
+  const trialCtx = {
+    chat: { id: 456, type: 'supergroup' },
+    session: trialSession,
+    auth: {} as Record<string, unknown>,
+    telegram: {
+      sendMessage: async () => ({ message_id: 1 }),
+    },
+    answerCbQuery: async (text?: string) => {
+      trialCallbackAnswers.push(text ?? '');
+    },
+  } as unknown as BotContext;
+
+  await __testing.handlePlanSelection(trialCtx, trialThreadKey, 'trial');
+
+  const trialState = trialSession.moderationPlans.threads[trialThreadKey];
+  assert.equal(
+    trialState?.planChoice,
+    'trial',
+    'Выбор пробного тарифа должен сохраняться в состоянии мастера',
+  );
+  assert.equal(
+    trialState?.step,
+    'details',
+    'После выбора пробного тарифа мастер должен переходить к заполнению деталей',
+  );
+
+  const trialLabel = __testing.formatPlanChoiceLabel('trial');
+  assert.ok(
+    trialCallbackAnswers.includes(`Выбран тариф: ${trialLabel}`),
+    'Ответ на callback с пробным тарифом должен подтверждать выбор',
+  );
+
+  console.log('form command trial plan selection test: OK');
 })();
 
 void (async () => {

@@ -49,14 +49,17 @@ process.env.KASPI_NAME = process.env.KASPI_NAME ?? 'Test User';
 process.env.KASPI_PHONE = process.env.KASPI_PHONE ?? '+70000000000';
 process.env.WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN ?? 'example.com';
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'secret';
+process.env.SUB_TRIAL_DAYS = process.env.SUB_TRIAL_DAYS ?? '3';
 
 void (async () => {
   const { REMINDER_OFFSETS_HOURS } = await import('../src/services/executorPlans/reminders');
   const { __testing } = await import('../src/jobs/executorPlanReminders');
+  const { getPlanChoiceDurationDays } = await import('../src/domain/executorPlans');
 
   const { computeReminderTime } = __testing;
 
   const PLAN_CONFIGS: Array<{ choice: ExecutorPlanRecord['planChoice']; days: number }> = [
+    { choice: 'trial', days: getPlanChoiceDurationDays('trial') },
     { choice: '7', days: 7 },
     { choice: '15', days: 15 },
     { choice: '30', days: 30 },

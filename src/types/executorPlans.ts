@@ -1,6 +1,6 @@
 export type ExecutorPlanStatus = 'active' | 'blocked' | 'completed' | 'cancelled';
 
-export type ExecutorPlanChoice = '7' | '15' | '30';
+export type ExecutorPlanChoice = 'trial' | '7' | '15' | '30';
 
 export interface ExecutorPlanRecord {
   id: number;

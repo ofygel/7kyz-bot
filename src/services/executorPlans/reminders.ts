@@ -1,4 +1,5 @@
 import { config } from '../../config';
+import { getPlanChoiceLabel } from '../../domain/executorPlans';
 import type { ExecutorPlanRecord } from '../../types';
 
 export const REMINDER_OFFSETS_HOURS = [-48, -24, -3, 0, 24] as const;
@@ -18,18 +19,8 @@ const formatDateTime = (value: Date): string =>
     timeZone: config.timezone,
   }).format(value);
 
-export const formatPlanChoice = (plan: ExecutorPlanRecord): string => {
-  switch (plan.planChoice) {
-    case '7':
-      return 'План на 7 дней';
-    case '15':
-      return 'План на 15 дней';
-    case '30':
-      return 'План на 30 дней';
-    default:
-      return `План ${plan.planChoice}`;
-  }
-};
+export const formatPlanChoice = (plan: ExecutorPlanRecord): string =>
+  getPlanChoiceLabel(plan.planChoice);
 
 export const formatPlanStatus = (plan: ExecutorPlanRecord): string => {
   switch (plan.status) {

@@ -9,6 +9,7 @@ import type {
   ExecutorPlanRecord,
   ExecutorPlanStatus,
 } from '../types';
+import { getPlanChoiceDurationDays } from '../domain/executorPlans';
 
 interface ExecutorPlanRow {
   id: number;
@@ -28,18 +29,20 @@ interface ExecutorPlanRow {
   updated_at: Date | string;
 }
 
-const PLAN_CHOICES: ExecutorPlanChoice[] = ['7', '15', '30'];
+const PLAN_CHOICES: ExecutorPlanChoice[] = ['trial', '7', '15', '30'];
 const PLAN_CHOICE_SET = new Set(PLAN_CHOICES);
 const PLAN_CHOICE_DURATIONS: Record<ExecutorPlanChoice, number> = {
-  '7': 7,
-  '15': 15,
-  '30': 30,
+  trial: getPlanChoiceDurationDays('trial'),
+  '7': getPlanChoiceDurationDays('7'),
+  '15': getPlanChoiceDurationDays('15'),
+  '30': getPlanChoiceDurationDays('30'),
 };
+const FALLBACK_PLAN_CHOICE: ExecutorPlanChoice = '7';
 const PLAN_STATUSES: ExecutorPlanStatus[] = ['active', 'blocked', 'completed', 'cancelled'];
 const PLAN_STATUS_SET = new Set(PLAN_STATUSES);
 
 const getPlanChoiceDuration = (choice: ExecutorPlanChoice): number =>
-  PLAN_CHOICE_DURATIONS[choice] ?? PLAN_CHOICE_DURATIONS['7'];
+  PLAN_CHOICE_DURATIONS[choice] ?? PLAN_CHOICE_DURATIONS[FALLBACK_PLAN_CHOICE];
 
 const computeEndsAt = (startAt: Date, durationDays: number): Date =>
   new Date(startAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
@@ -75,7 +78,7 @@ const normalisePlanChoice = (value: string): ExecutorPlanChoice => {
     return value as ExecutorPlanChoice;
   }
 
-  const fallback = PLAN_CHOICES[0];
+  const fallback = FALLBACK_PLAN_CHOICE;
   logger.warn({ value }, 'Unknown executor plan choice, using fallback');
   return fallback;
 };
