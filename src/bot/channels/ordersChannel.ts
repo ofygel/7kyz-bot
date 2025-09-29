@@ -32,6 +32,7 @@ import {
 } from '../services/reports';
 import { withIdempotency } from '../middlewares/idempotency';
 import { sendProcessingFeedback } from '../services/feedback';
+import { getExecutorOrderAccess } from '../services/executorAccess';
 
 export type PublishOrderStatus = 'published' | 'already_published' | 'missing_channel';
 
@@ -623,8 +624,8 @@ type OrderActionOutcome =
   | { outcome: 'already_dismissed' }
   | { outcome: 'limit_exceeded' }
   | { outcome: 'forbidden_kind'; order: OrderRecord }
-  | { outcome: 'driver_unverified'; order: OrderRecord }
-  | { outcome: 'courier_unverified'; order: OrderRecord }
+  | { outcome: 'phone_required' }
+  | { outcome: 'executor_blocked' }
   | { outcome: 'city_mismatch'; order: OrderRecord };
 
 interface OrderActionActor {
@@ -632,7 +633,6 @@ interface OrderActionActor {
   role?: UserRole;
   executorKind?: ExecutorRole;
   city?: AppCity;
-  verifiedRoles?: Partial<Record<ExecutorRole, boolean>>;
 }
 
 type OrderReleaseOutcome =
@@ -670,6 +670,21 @@ const processOrderAction = async (
     }
   }
 
+  if (decision === 'accept') {
+    if (typeof actorId !== 'number') {
+      throw new Error('Missing moderator identifier for order claim');
+    }
+
+    const access = await getExecutorOrderAccess(actorId);
+    if (!access || !access.hasPhone) {
+      return { outcome: 'phone_required' } as const;
+    }
+
+    if (access.isBlocked) {
+      return { outcome: 'executor_blocked' } as const;
+    }
+  }
+
   const result = await withTx(
     async (client) => {
       const order = await lockOrderById(client, orderId);
@@ -682,26 +697,12 @@ const processOrderAction = async (
           return { outcome: 'already_processed', order } as const;
         }
 
-        if (typeof actorId !== 'number') {
-          throw new Error('Missing moderator identifier for order claim');
-        }
-
-        const verifiedRoles = actor.verifiedRoles ?? {};
-        const courierVerified = Boolean(verifiedRoles.courier);
-        const driverVerified = Boolean(verifiedRoles.driver);
-
         const executorKind = actor.executorKind;
 
         if (order.kind === 'taxi') {
           if (executorKind !== 'driver') {
             return { outcome: 'forbidden_kind', order } as const;
           }
-
-          if (!driverVerified) {
-            return { outcome: 'driver_unverified', order } as const;
-          }
-        } else if (!courierVerified && !driverVerified) {
-          return { outcome: 'courier_unverified', order } as const;
         }
 
         if (executorKind === 'driver') {
@@ -882,7 +883,6 @@ const handleOrderDecision = async (
       role: actorRole,
       executorKind: ctx.auth?.user.executorKind,
       city: actorCity,
-      verifiedRoles: ctx.auth?.executor.verifiedRoles,
     });
   } catch (error) {
     logger.error({ err: error, orderId }, 'Failed to apply order channel decision');
@@ -923,12 +923,12 @@ const handleOrderDecision = async (
       await ctx.answerCbQuery('🚫 Этот заказ доступен только водителям.', { show_alert: true });
       return;
     }
-    case 'driver_unverified': {
-      await ctx.answerCbQuery(copy.orderDriverVerificationRequired, { show_alert: true });
+    case 'phone_required': {
+      await ctx.answerCbQuery(copy.orderPhoneRequired, { show_alert: true });
       return;
     }
-    case 'courier_unverified': {
-      await ctx.answerCbQuery(copy.orderCourierVerificationRequired, { show_alert: true });
+    case 'executor_blocked': {
+      await ctx.answerCbQuery(copy.orderAccessBlocked, { show_alert: true });
       return;
     }
     case 'claimed': {
