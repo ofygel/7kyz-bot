@@ -8,3 +8,9 @@ export type {
   OrderExecutorInfo,
   OrderWithExecutor,
 } from './orders';
+export type {
+  ExecutorPlanChoice,
+  ExecutorPlanInsertInput,
+  ExecutorPlanRecord,
+  ExecutorPlanStatus,
+} from './executorPlans';

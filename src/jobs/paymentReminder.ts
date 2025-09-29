@@ -1,17 +1,14 @@
-import cron, { type ScheduledTask } from 'node-cron';
 import type { Telegraf } from 'telegraf';
 
-import { ui } from '../bot/ui';
-import { ensureExecutorState, showExecutorMenu } from '../bot/flows/executor/menu';
-import { loadAuthStateByTelegramId } from '../bot/middlewares/auth';
-import type { BotContext, SessionState } from '../bot/types';
-import { config, logger } from '../config';
-import type { PoolClient } from '../db/client';
-import { pool } from '../db/client';
-import { loadSessionState, saveSessionState, type SessionKey } from '../db/sessions';
-import { updateUserSubscriptionStatus } from '../db/users';
-import { HOUR } from '../utils/time';
+import type { BotContext } from '../bot/types';
+import { logger } from '../config';
 
+/**
+ * Deprecated payment reminder job. Executor reminders are now handled by the CRM scheduler.
+ */
+export const startPaymentReminderJob = (_bot: Telegraf<BotContext>): void => {
+  logger.info('paymentReminder job is disabled in favour of executor plan reminders');
+=======
 type ReminderReason = 'awaitingReceipt' | 'trialEnding';
 
 interface ReminderDescriptor {
@@ -447,16 +444,5 @@ export const startPaymentReminderJob = (bot: Telegraf<BotContext>): void => {
 };
 
 export const stopPaymentReminderJob = (): void => {
-  if (!task) {
-    return;
-  }
-
-  task.stop();
-  task = null;
-  running = false;
-};
-
-export const __testing__ = {
-  executeReminderCycle,
-  REMINDER_INTERVAL_MS,
+  // intentionally empty
 };
