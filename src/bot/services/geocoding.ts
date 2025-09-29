@@ -867,7 +867,7 @@ const scrapeTwoGisPlace = async (url: URL): Promise<TwoGisScrapeResult | null> =
       timeoutMs: DEFAULT_TIMEOUT_MS,
       headers: {
         Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-        'User-Agent': 'Mozilla/5.0 (compatible; FreedomBot/1.0)',
+        'User-Agent': 'Mozilla/5.0 (compatible; BotService/1.0)',
         'Accept-Language': 'ru,en;q=0.8',
       },
     });

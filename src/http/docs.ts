@@ -6,7 +6,7 @@ import { version } from '../../package.json';
 const openApiDocument = {
   openapi: '3.1.0',
   info: {
-    title: 'Freedom Bot Service API',
+    title: 'Bot Service API',
     version,
   },
   servers: [

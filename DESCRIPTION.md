@@ -1,4 +1,4 @@
-Freedom Bot — Техническое задание (v1.4)
+Telegram-бот агрегатор — Техническое задание (v1.4)
 
 Дата: 2025‑09‑27 (Asia/Almaty)
 Стек: TypeScript · Telegraf v4 · Node 18+ · PostgreSQL (Railway) · Webhook
@@ -190,7 +190,7 @@ src/
 
 BOT_TOKEN — токен бота.
 
-WEBHOOK_DOMAIN — публичный домен (например, freedombot-production.up.railway.app).
+WEBHOOK_DOMAIN — публичный домен (например, bot-production.up.railway.app).
 
 WEBHOOK_SECRET — случайная строка, путь: /bot/${WEBHOOK_SECRET}.
 

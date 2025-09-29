@@ -1,6 +1,6 @@
 # Database migrations
 
-Freedom Bot ships with SQL migrations stored in [`db/migrations`](./migrations).
+The service ships with SQL migrations stored in [`db/migrations`](./migrations).
 They are applied automatically when the application calls
 `ensureDatabaseSchema()` (this happens on startup) or can be executed manually
 with:
