@@ -2,13 +2,15 @@ import { Markup, type MiddlewareFn } from 'telegraf';
 import type { ReplyKeyboardMarkup } from 'telegraf/typings/core/types/typegram';
 
 import { logger } from '../../../config';
-import { pool } from '../../../db';
 import { setUserBlockedStatus } from '../../../db/users';
 import {
   reportPhoneVerified,
   reportUserRegistration,
   toUserIdentity,
 } from '../../services/reports';
+import { persistPhoneVerification } from '../../../db/phoneVerification';
+import { enqueueUserPhoneUpdate } from '../../../infra/userPhoneQueue';
+import { primeExecutorOrderAccessCache } from '../../services/executorAccess';
 import type { BotContext } from '../../types';
 import { ui } from '../../ui';
 
@@ -31,6 +33,8 @@ const PHONE_FOREIGN_CONTACT_TEXT = [
 ].join('\n\n');
 
 const PHONE_STEP_ACTIONS = ['📲 Поделиться контактом', PHONE_HELP_BUTTON_LABEL, PHONE_STATUS_BUTTON_LABEL];
+
+const EXECUTOR_ACCESS_CACHE_TTL_SECONDS = 60 * 60; // 1 hour to survive extended outages.
 
 const rememberEphemeralMessage = (ctx: BotContext, messageId?: number): void => {
   if (!messageId) {
@@ -207,27 +211,18 @@ export const savePhone: MiddlewareFn<BotContext> = async (ctx, next) => {
   const wasVerified = Boolean(ctx.auth?.user?.phoneVerified || ctx.session.user?.phoneVerified);
 
   try {
-    await pool.query(
-      `
-        UPDATE users
-        SET
-          phone = $1,
-          phone_verified = true,
-          status = CASE
-            WHEN status IN ('suspended', 'banned') THEN status
-            WHEN status IN ('awaiting_phone', 'guest') THEN 'onboarding'
-            WHEN status IS NULL THEN 'onboarding'
-            ELSE status
-          END,
-          updated_at = now()
-        WHERE tg_id = $2
-      `,
-      [phone, fromId],
-    );
+    await persistPhoneVerification({ telegramId: fromId, phone });
   } catch (error) {
     logger.error({ err: error, telegramId: fromId }, 'Failed to save verified phone number');
-    await next();
-    return;
+
+    try {
+      await enqueueUserPhoneUpdate({ telegramId: fromId, phone });
+    } catch (queueError) {
+      logger.error(
+        { err: queueError, telegramId: fromId },
+        'Failed to enqueue verified phone number for retry',
+      );
+    }
   }
 
   ctx.session.awaitingPhone = false;
@@ -241,6 +236,22 @@ export const savePhone: MiddlewareFn<BotContext> = async (ctx, next) => {
     if (ctx.auth.user.status === 'awaiting_phone' || ctx.auth.user.status === 'guest') {
       ctx.auth.user.status = 'onboarding';
     }
+  }
+
+  const executorAccessRecord = {
+    hasPhone: true,
+    isBlocked: Boolean(ctx.auth?.user?.isBlocked),
+  } as const;
+
+  try {
+    await primeExecutorOrderAccessCache(fromId, executorAccessRecord, {
+      ttlSeconds: EXECUTOR_ACCESS_CACHE_TTL_SECONDS,
+    });
+  } catch (cacheError) {
+    logger.warn(
+      { err: cacheError, telegramId: fromId },
+      'Failed to prime executor access cache after phone capture',
+    );
   }
 
   if (!wasVerified) {
