@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "freedom-bot.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "freedom-bot.name" . }}
+    helm.sh/chart: {{ include "freedom-bot.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "freedom-bot.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "freedom-bot.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ include "freedom-bot.name" . }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+{{- range .Values.env }}
+            - name: {{ .name }}
+{{- if hasKey . "value" }}
+              value: {{ .value | quote }}
+{{- else if hasKey . "valueFrom" }}
+              valueFrom:
+{{ toYaml .valueFrom | indent 14 }}
+{{- end }}
+{{- end }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+        - name: vector
+          image: "timberio/vector:0.37-alpine"
+          args: ['--config', '/etc/vector/vector.toml']
+          env:
+            - name: LOKI_URL
+              value: "{{ .Values.loki.url }}"
+          volumeMounts:
+            - name: vector-config
+              mountPath: /etc/vector
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: vector-config
+          configMap:
+            name: vector-config

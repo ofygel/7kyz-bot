@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+data:
+  vector.toml: |
+    [sources.stdin]
+    type = "stdin"
+
+    [transforms.parse_json]
+    type = "remap"
+    inputs = ["stdin"]
+    source = '''
+      . |= parse_json!(.)
+    '''
+
+    [sinks.loki]
+    type = "loki"
+    inputs = ["parse_json"]
+    endpoint = "${LOKI_URL}"
+    encoding.codec = "json"

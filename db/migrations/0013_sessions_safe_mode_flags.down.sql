@@ -1,0 +1,7 @@
+BEGIN;
+
+ALTER TABLE sessions
+  DROP COLUMN IF EXISTS safe_mode,
+  DROP COLUMN IF EXISTS is_degraded;
+
+COMMIT;

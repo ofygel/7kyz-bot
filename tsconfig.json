@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": false,
+    "resolveJsonModule": true
+  },
+  "include": [
+    "src/index.ts",
+    "src/bot/**/*.ts",
+    "src/config/**/*.ts",
+    "src/services/**/*.ts",
+    "src/db/**/*.ts",
+    "src/jobs/**/*.ts",
+    "src/infra/**/*.ts",
+    "src/types/**/*.ts",
+    "src/utils/**/*.ts",
+    "src/lib/**/*.ts",
+    "src/metrics/**/*.ts",
+    "src/scripts/**/*.ts",
+    "src/ui/**/*.ts",
+    "src/http/**/*.ts"
+  ]
+}

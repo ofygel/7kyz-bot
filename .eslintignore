@@ -1,0 +1,8 @@
+dist/
+src/bot/
+src/app.ts
+src/config/logger.ts
+src/db/
+src/jobs/
+src/lib/
+src/scripts/
