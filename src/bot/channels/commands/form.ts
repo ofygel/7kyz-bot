@@ -3,6 +3,7 @@ import type { BotCommand } from 'telegraf/typings/core/types/typegram';
 
 import type { BotContext, ModerationPlanWizardState } from '../../types';
 import { config, logger } from '../../../config';
+import { getPlanChoiceLabel } from '../../../domain/executorPlans';
 import type {
   ExecutorPlanChoice,
   ExecutorPlanInsertInput,
@@ -96,7 +97,7 @@ const MONTHS: Record<string, number> = {
   дек: 11,
 };
 
-const PLAN_VALUES: ExecutorPlanChoice[] = ['7', '15', '30'];
+const PLAN_VALUES: ExecutorPlanChoice[] = ['trial', '7', '15', '30'];
 
 const CALLBACK_TTL_SECONDS = 7 * 24 * 60 * 60;
 const WIZARD_ACTION_PREFIX = 'executor-plan-wizard';
@@ -105,7 +106,7 @@ const SUMMARY_CONFIRM_ACTION = `${WIZARD_ACTION_PREFIX}:confirm`;
 const SUMMARY_CANCEL_ACTION = `${WIZARD_ACTION_PREFIX}:cancel`;
 
 const PLAN_SELECT_CALLBACK_PATTERN = new RegExp(
-  `^${PLAN_SELECT_ACTION}:(7|15|30)$`,
+  `^${PLAN_SELECT_ACTION}:(trial|7|15|30)$`,
 );
 const SUMMARY_CONFIRM_CALLBACK_PATTERN = new RegExp(
   `^${SUMMARY_CONFIRM_ACTION}$`,
@@ -115,9 +116,10 @@ const SUMMARY_CANCEL_CALLBACK_PATTERN = new RegExp(
 );
 
 const PLAN_CHOICE_LABELS: Record<ExecutorPlanChoice, string> = {
-  '7': 'План на 7 дней',
-  '15': 'План на 15 дней',
-  '30': 'План на 30 дней',
+  trial: getPlanChoiceLabel('trial'),
+  '7': getPlanChoiceLabel('7'),
+  '15': getPlanChoiceLabel('15'),
+  '30': getPlanChoiceLabel('30'),
 };
 
 const sanitisePhone = (value: string): string | null => {
@@ -214,7 +216,7 @@ const ensureVerifyChannel = (ctx: BotContext): boolean => {
 };
 
 const formatPlanChoiceLabel = (choice: ExecutorPlanChoice): string =>
-  PLAN_CHOICE_LABELS[choice] ?? `План ${choice} дней`;
+  PLAN_CHOICE_LABELS[choice] ?? getPlanChoiceLabel(choice);
 
 const ensureModerationPlansState = (ctx: BotContext): void => {
   if (!ctx.session.moderationPlans) {
