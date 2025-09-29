@@ -26,6 +26,17 @@ const getMessageText = (ctx: BotContext): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const isExecutorUser = (ctx: BotContext): boolean => {
+  const role = ctx.auth?.user?.role;
+  const status = ctx.auth?.user?.status;
+
+  if (!ctx.auth?.user) {
+    return false;
+  }
+
+  return role === 'executor' || role === 'moderator' || status === 'active_executor';
+};
+
 export const stateGate = (): MiddlewareFn<BotContext> => async (ctx, next) => {
   const chatType = ctx.chat?.type;
   const isChannelChat = chatType === 'channel';
@@ -86,7 +97,9 @@ export const stateGate = (): MiddlewareFn<BotContext> => async (ctx, next) => {
     return;
   }
 
-  if (user.status === 'trial_expired') {
+  const executor = isExecutorUser(ctx);
+
+  if (executor && user.status === 'trial_expired') {
     const warning =
       'Пробный период завершён. Продлите подписку, чтобы продолжить получать заказы.';
     await answerCallbackQuery(warning);
