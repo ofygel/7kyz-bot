@@ -22,15 +22,67 @@ function enableTestEnv() {
 
 enableTestEnv();
 
-const commandModule = require('../src/bot/channels/commands/from');
-const {
-  startWizard,
-  handleWizardTextMessage,
-  handlePlanSelection,
-  getThreadKey,
-} = commandModule.__testing;
+const FORM_COMMANDS_MODULE_PATH = '../src/bot/channels/commands/form';
+
+function loadFormCommandsModule() {
+  delete require.cache[require.resolve(FORM_COMMANDS_MODULE_PATH)];
+  return require(FORM_COMMANDS_MODULE_PATH);
+}
+
+test('registerFormCommand configures verify channel chat commands once', async () => {
+  const { registerFormCommand } = loadFormCommandsModule();
+
+  const bot = {
+    command: () => undefined,
+    on: () => undefined,
+    action: () => undefined,
+    telegram: {
+      setMyCommands: async () => undefined,
+      setChatMenuButton: async () => undefined,
+    },
+  };
+
+  const setMyCommandsCalls = [];
+  const callPromise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('setMyCommands was not called')), 1000);
+
+    bot.telegram.setMyCommands = async (...args) => {
+      setMyCommandsCalls.push(args);
+      if (setMyCommandsCalls.length === 1) {
+        clearTimeout(timeout);
+        resolve();
+      }
+    };
+  });
+
+  registerFormCommand(bot);
+  await callPromise;
+
+  assert.equal(setMyCommandsCalls.length, 1);
+
+  const [commandsArg, optionsArg] = setMyCommandsCalls[0];
+  const chatId = Number.parseInt(process.env.BIND_VERIFY_CHANNEL_ID, 10);
+  assert.equal(optionsArg.scope.chat_id, chatId);
+
+  const commandNames = commandsArg.map((entry) => entry.command);
+  for (const expected of ['from', 'form', 'extend', 'block', 'unblock', 'status', 'delete']) {
+    assert.ok(commandNames.includes(expected), `expected command ${expected} to be registered`);
+  }
+
+  registerFormCommand(bot);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(setMyCommandsCalls.length, 1);
+});
 
 test('CRM wizard posts every step inside the originating thread', async () => {
+  const commandModule = loadFormCommandsModule();
+  const {
+    startWizard,
+    handleWizardTextMessage,
+    handlePlanSelection,
+    getThreadKey,
+  } = commandModule.__testing;
+
   const threadId = 4242;
   const chatId = Number.parseInt(process.env.BIND_VERIFY_CHANNEL_ID, 10);
   const sentMessages = [];
