@@ -193,6 +193,21 @@ void (async () => {
   assert.ok(wizardState, 'Состояние мастера должно создаваться при запуске');
   assert.equal(wizardState?.step, 'phone', 'Первый шаг мастера — ввод телефона');
 
+  setMessage('123');
+  assert.equal(await __testing.handleWizardTextMessage(ctx), true);
+  assert.deepEqual(
+    session.ephemeralMessages,
+    [1],
+    'Подсказка с ошибкой должна сохранять идентификатор для автоудаления',
+  );
+  assert.deepEqual(
+    replies,
+    ['Не удалось распознать номер. Используйте формат +77001234567.'],
+    'При ошибке валидации телефона должна приходить подсказка',
+  );
+  replies.length = 0;
+  session.ephemeralMessages.length = 0;
+
   setMessage('+7 (700) 123-45-67');
   assert.equal(await __testing.handleWizardTextMessage(ctx), true);
 
@@ -207,6 +222,21 @@ void (async () => {
   wizardState = session.moderationPlans.threads[threadKey];
   assert.equal(wizardState?.nickname, '@executor', 'Ник должен сохраняться');
   assert.equal(wizardState?.step, 'plan', 'После ника бот должен ожидать выбор тарифа');
+
+  setMessage('15');
+  assert.equal(await __testing.handleWizardTextMessage(ctx), true);
+  assert.deepEqual(
+    session.ephemeralMessages,
+    [1],
+    'Подсказка о выборе тарифа должна сохранять идентификатор для автоудаления',
+  );
+  assert.deepEqual(
+    replies,
+    ['Выберите тариф с помощью кнопок под сообщением.'],
+    'При попытке отправить тариф текстом должна приходить подсказка',
+  );
+  replies.length = 0;
+  session.ephemeralMessages.length = 0;
 
   await __testing.handlePlanSelection(ctx, threadKey, '15');
   wizardState = session.moderationPlans.threads[threadKey];

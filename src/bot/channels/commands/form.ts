@@ -39,6 +39,7 @@ import { buildInlineKeyboard, buildConfirmCancelKeyboard } from '../../keyboards
 import { wrapCallbackData } from '../../services/callbackTokens';
 import { buildExecutorPlanActionKeyboard } from '../../ui/executorPlans';
 import { parseDateTimeInTimezone } from '../../../utils/time';
+import { rememberEphemeralMessage } from '../../services/cleanup';
 
 const VERIFY_COMMANDS = ['from', 'form'] as const;
 
@@ -691,7 +692,13 @@ const handleWizardTextMessage = async (ctx: BotContext): Promise<boolean> => {
     case 'phone': {
       const phone = sanitisePhone(text);
       if (!phone) {
-        await ctx.reply('Не удалось распознать номер. Используйте формат +77001234567.');
+        const reply = await ctx.reply('Не удалось распознать номер. Используйте формат +77001234567.');
+        rememberEphemeralMessage(
+          ctx,
+          typeof reply === 'object' && reply !== null && 'message_id' in reply
+            ? (reply as { message_id?: number }).message_id
+            : undefined,
+        );
         return true;
       }
 
@@ -714,7 +721,13 @@ const handleWizardTextMessage = async (ctx: BotContext): Promise<boolean> => {
       return true;
     }
     case 'plan': {
-      await ctx.reply('Выберите тариф с помощью кнопок под сообщением.');
+      const reply = await ctx.reply('Выберите тариф с помощью кнопок под сообщением.');
+      rememberEphemeralMessage(
+        ctx,
+        typeof reply === 'object' && reply !== null && 'message_id' in reply
+          ? (reply as { message_id?: number }).message_id
+          : undefined,
+      );
       return true;
     }
     case 'details':
