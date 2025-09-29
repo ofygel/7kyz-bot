@@ -1,4 +1,5 @@
 import { Telegraf } from 'telegraf';
+import type { BotCommand } from 'telegraf/typings/core/types/typegram';
 
 import type { BotContext, ModerationPlanWizardState } from '../../types';
 import { config, logger } from '../../../config';
@@ -28,11 +29,41 @@ import {
 } from '../../../services/executorPlans/actions';
 import { getExecutorPlanById } from '../../../db/executorPlans';
 import { ui } from '../../ui';
+import { setChatCommands } from '../../services/commands';
 import { buildInlineKeyboard, buildConfirmCancelKeyboard } from '../../keyboards/common';
 import { wrapCallbackData } from '../../services/callbackTokens';
 import { buildExecutorPlanActionKeyboard } from '../../ui/executorPlans';
 
 const VERIFY_COMMANDS = ['from', 'form'] as const;
+
+const VERIFY_CHANNEL_COMMANDS: BotCommand[] = [
+  ...VERIFY_COMMANDS.map((command) => ({
+    command,
+    description: 'Запустить проверку исполнителя',
+  })),
+  { command: 'extend', description: 'Продлить план или обновить комментарий' },
+  { command: 'block', description: 'Заблокировать план исполнителя' },
+  { command: 'unblock', description: 'Разблокировать план исполнителя' },
+  { command: 'status', description: 'Показать текущий статус плана' },
+  { command: 'delete', description: 'Удалить план исполнителя' },
+];
+
+let verifyChannelCommandsRegistered = false;
+
+const ensureVerifyChannelCommands = (bot: Telegraf<BotContext>): void => {
+  if (verifyChannelCommandsRegistered) {
+    return;
+  }
+
+  verifyChannelCommandsRegistered = true;
+
+  const chatId = config.channels.bindVerifyChannelId;
+  if (!chatId) {
+    return;
+  }
+
+  void setChatCommands(bot.telegram, chatId, VERIFY_CHANNEL_COMMANDS, { showMenuButton: false });
+};
 
 const EXTEND_CALLBACK_PATTERN = new RegExp(
   `^${EXECUTOR_PLAN_EXTEND_ACTION}:(\\d+):(\\d+)$`,
@@ -1076,6 +1107,8 @@ const handleEditCallback = async (ctx: BotContext, planId: number): Promise<void
 };
 
 export const registerFormCommand = (bot: Telegraf<BotContext>): void => {
+  ensureVerifyChannelCommands(bot);
+
   VERIFY_COMMANDS.forEach((command) => {
     bot.command(command, async (ctx) => {
       await handleFormCommand(ctx);
