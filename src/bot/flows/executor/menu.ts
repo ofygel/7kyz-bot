@@ -136,13 +136,17 @@ export const requireExecutorRole = (state: ExecutorFlowState): ExecutorRole => {
   throw new Error('Executor role is not set');
 };
 
+const SUPPORT_USERNAME = 'seven_support';
+const SUPPORT_LINK = `https://t.me/${SUPPORT_USERNAME}`;
+
 const buildMenuKeyboard = (): InlineKeyboardMarkup =>
   Markup.inlineKeyboard([
-    [Markup.button.callback('📸 Документы', EXECUTOR_VERIFICATION_ACTION)],
+    [Markup.button.url('📸 Документы', SUPPORT_LINK)],
     [Markup.button.callback('💳 Подписка', EXECUTOR_SUBSCRIPTION_ACTION)],
-    [Markup.button.callback('🆘 Поддержка', EXECUTOR_SUPPORT_ACTION)],
+    [Markup.button.url('🆘 Поддержка', SUPPORT_LINK)],
     [Markup.button.callback('🔄 Обновить меню', EXECUTOR_MENU_ACTION)],
   ]).reply_markup;
+
 
 const SUPPORT_USERNAME = 'seven_support';
 
@@ -154,6 +158,10 @@ const buildMenuText = (state: ExecutorFlowState, city: string): string => {
     `${copy.emoji} Меню ${copy.genitive}`,
     `🏙️ Город: ${city}`,
     '',
+    `📸 Документы: отправьте фото удостоверения по кнопке ниже — команда проверит их и даст обратную связь в @${SUPPORT_USERNAME}.`,
+    '💳 Подписка: выберите план по кнопке ниже — там будут инструкции и ссылка на канал.',
+    '',
+    `Нужна помощь? Поддержка ответит в @${SUPPORT_USERNAME}.`,
     '📸 Документы: отправьте фото удостоверения в @seven_support — команда проверит их и даст обратную связь.',
     '💳 Подписка: выберите план и напишите @seven_support, чтобы получить инструкции и ссылку на канал.',
     '',
