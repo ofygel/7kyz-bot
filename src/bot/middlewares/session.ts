@@ -33,6 +33,7 @@ import {
   type SessionUser,
   type SupportSessionState,
   type UiSessionState,
+  type ModerationPlansSessionState,
   type UserRole,
   type UserStatus,
   type UserVerifyStatus,
@@ -97,6 +98,10 @@ const createUiState = (): UiSessionState => ({
 
 const createSupportState = (): SupportSessionState => ({
   status: 'idle',
+});
+
+const createModerationPlansState = (): ModerationPlansSessionState => ({
+  threads: {},
 });
 
 const USER_ROLES: readonly UserRole[] = ['guest', 'client', 'executor', 'moderator'];
@@ -481,6 +486,15 @@ const normaliseSessionState = (state: SessionState): SessionState => {
     working.support = createSupportState();
   }
 
+  if (!working.moderationPlans) {
+    working.moderationPlans = createModerationPlansState();
+  } else if (
+    !(working.moderationPlans as { threads?: unknown }).threads ||
+    typeof (working.moderationPlans as { threads?: unknown }).threads !== 'object'
+  ) {
+    working.moderationPlans.threads = {};
+  }
+
   if (!working.onboarding) {
     working.onboarding = createOnboardingState();
   }
@@ -508,6 +522,7 @@ const createDefaultState = (): SessionState => ({
   executor: createExecutorState(),
   client: createClientState(),
   ui: createUiState(),
+  moderationPlans: createModerationPlansState(),
   support: createSupportState(),
   onboarding: createOnboardingState(),
 });
