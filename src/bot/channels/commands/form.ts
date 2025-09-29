@@ -3,7 +3,7 @@ import type { BotCommand } from 'telegraf/typings/core/types/typegram';
 
 import type { BotContext, ModerationPlanWizardState } from '../../types';
 import { config, logger } from '../../../config';
-import { getPlanChoiceLabel } from '../../../domain/executorPlans';
+import { getPlanChoiceDurationDays, getPlanChoiceLabel } from '../../../domain/executorPlans';
 import type {
   ExecutorPlanChoice,
   ExecutorPlanInsertInput,
@@ -98,6 +98,7 @@ const MONTHS: Record<string, number> = {
 };
 
 const PLAN_VALUES: ExecutorPlanChoice[] = ['trial', '7', '15', '30'];
+const MS_IN_DAY = 24 * 60 * 60 * 1000;
 
 const CALLBACK_TTL_SECONDS = 7 * 24 * 60 * 60;
 const WIZARD_ACTION_PREFIX = 'executor-plan-wizard';
@@ -121,6 +122,9 @@ const PLAN_CHOICE_LABELS: Record<ExecutorPlanChoice, string> = {
   '15': getPlanChoiceLabel('15'),
   '30': getPlanChoiceLabel('30'),
 };
+
+const computePlanEndsAt = (planChoice: ExecutorPlanChoice, startAt: Date): Date =>
+  new Date(startAt.getTime() + getPlanChoiceDurationDays(planChoice) * MS_IN_DAY);
 
 const sanitisePhone = (value: string): string | null => {
   const cleaned = value.replace(/[^\d+]/g, '');
@@ -446,8 +450,16 @@ const renderSummaryStep = async (
     return;
   }
 
-  const startAt = state.startAt ?? new Date();
+  state.startAt = state.startAt ?? new Date();
+
+  const input = buildPlanInputFromState(ctx, state);
+  if (!input) {
+    return;
+  }
+
+  const startAt = input.startAt;
   state.startAt = startAt;
+  const endsAt = input.endsAt ?? computePlanEndsAt(input.planChoice, input.startAt);
 
   const lines = [
     '📋 Проверьте данные плана:',
@@ -460,6 +472,7 @@ const renderSummaryStep = async (
 
   lines.push(`Тариф: ${formatPlanChoiceLabel(state.planChoice)}`);
   lines.push(`Старт: ${formatDateTime(startAt)}`);
+  lines.push(`Окончание: ${formatDateTime(endsAt)}`);
   lines.push(`Комментарий: ${state.comment ?? '—'}`);
   lines.push('', 'Нажмите «Сохранить», чтобы создать запись, или «Отмена», чтобы сбросить форму.');
 
@@ -542,6 +555,7 @@ const buildPlanInputFromState = (
   }
 
   const startAt = state.startAt ?? new Date();
+  const endsAt = computePlanEndsAt(state.planChoice, startAt);
   const chatId = ctx.chat?.id ?? config.channels.bindVerifyChannelId ?? 0;
 
   return {
@@ -551,6 +565,7 @@ const buildPlanInputFromState = (
     nickname: state.nickname,
     planChoice: state.planChoice,
     startAt,
+    endsAt,
     comment: state.comment?.trim() || undefined,
   } satisfies ExecutorPlanInsertInput;
 };
