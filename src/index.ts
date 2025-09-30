@@ -186,6 +186,22 @@ const startServer = async (webhookPath: string, port: number): Promise<Server> =
   });
 };
 
+const ensureWebhookRegistration = async (url: string): Promise<void> => {
+  try {
+    const info = await app.telegram.getWebhookInfo();
+    const sameUrl = info.url === url;
+
+    if (info.url && !sameUrl) {
+      logger.info({ previousUrl: info.url, nextUrl: url }, 'Resetting webhook before re-registration');
+      await app.telegram.deleteWebhook({ drop_pending_updates: true });
+    }
+
+    await app.telegram.setWebhook(url, { secret_token: config.webhook.secret });
+  } catch (error) {
+    throw error;
+  }
+};
+
 const start = async (): Promise<void> => {
   let server: Server | null = null;
   try {
@@ -198,7 +214,7 @@ const start = async (): Promise<void> => {
     logger.info({ port }, 'Webhook server listening for updates');
 
     try {
-      await app.telegram.setWebhook(url);
+      await ensureWebhookRegistration(url);
     } catch (webhookError) {
       await closeServer(httpServer).catch((error) => {
         logger.error({ err: normaliseError(error) }, 'Failed to close webhook server after registration error');
