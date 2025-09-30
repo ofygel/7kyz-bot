@@ -34,7 +34,7 @@ import {
   EXECUTOR_PLAN_TOGGLE_MUTE_ACTION,
   EXECUTOR_PLAN_UNBLOCK_ACTION,
 } from '../../../services/executorPlans/actions';
-import { getExecutorPlanById } from '../../../db/executorPlans';
+import { findActiveExecutorPlanByPhone, getExecutorPlanById } from '../../../db/executorPlans';
 import { ui } from '../../ui';
 import { setChatCommands } from '../../services/commands';
 import { buildInlineKeyboard, buildConfirmCancelKeyboard } from '../../keyboards/common';
@@ -950,6 +950,33 @@ const handleSummaryDecision = async (
     return;
   }
 
+  const summaryStepId = buildWizardStepId(threadKey, 'summary');
+
+  const existingPlan = await findActiveExecutorPlanByPhone(state.phone);
+  if (existingPlan) {
+    const lines = [
+      'Для этого номера уже есть активный план.',
+      buildPlanSummary(existingPlan),
+      'Обновите комментарий или продлите текущий план вместо создания дубликата.',
+    ];
+
+    await ui.step(ctx, {
+      id: summaryStepId,
+      text: lines.join('\n\n'),
+      messageThreadId: state.threadId,
+    });
+
+    if (typeof ctx.answerCbQuery === 'function') {
+      try {
+        await ctx.answerCbQuery('План с этим номером уже существует', { show_alert: true });
+      } catch (error) {
+        logger.debug({ err: error }, 'Failed to answer summary callback about duplicate plan');
+      }
+    }
+
+    return;
+  }
+
   const mutation: ExecutorPlanMutation = { type: 'create', payload: input };
 
   await handleMutationWithFallback(ctx, mutation, async (outcome) => {
@@ -962,7 +989,7 @@ const handleSummaryDecision = async (
 
     await clearWizardSteps(ctx, threadKey, { keepSummary: true });
     await ui.step(ctx, {
-      id: buildWizardStepId(threadKey, 'summary'),
+      id: summaryStepId,
       text: ['План сохранён ✅', buildPlanSummary(plan)].join('\n\n'),
       messageThreadId: state.threadId,
     });

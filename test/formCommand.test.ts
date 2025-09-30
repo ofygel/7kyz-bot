@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
-import type { BotContext } from '../src/bot/types';
+import type { BotContext, ModerationPlanWizardState } from '../src/bot/types';
 import type { ExecutorPlanInsertInput, ExecutorPlanRecord } from '../src/types';
 
 const requireFn = createRequire(__filename);
@@ -70,6 +70,7 @@ interface RecordedMutation {
 
 const processedMutations: RecordedMutation[] = [];
 let latestPlan: ExecutorPlanRecord | null = null;
+let activePlanByPhone: ExecutorPlanRecord | null = null;
 
 (requireFn.cache as Record<string, NodeModule | undefined>)[queueModulePath] = {
   id: queueModulePath,
@@ -133,8 +134,21 @@ const executorPlansModulePath = requireFn.resolve('../src/db/executorPlans.ts');
   exports: {
     getExecutorPlanById: async (id: number) =>
       latestPlan && latestPlan.id === id ? latestPlan : null,
+    findActiveExecutorPlanByPhone: async (phone: string) =>
+      activePlanByPhone && activePlanByPhone.phone === phone ? activePlanByPhone : null,
+    __setActiveExecutorPlanByPhone: (plan: ExecutorPlanRecord | null) => {
+      activePlanByPhone = plan;
+    },
   },
 } as unknown as NodeModule;
+
+const executorPlansStub = ((requireFn.cache as Record<string, NodeModule | undefined>)[
+  executorPlansModulePath
+]?.exports ?? null) as { __setActiveExecutorPlanByPhone: (plan: ExecutorPlanRecord | null) => void } | null;
+
+if (!executorPlansStub) {
+  throw new Error('Failed to initialise executor plans stub');
+}
 
 const uiModulePath = requireFn.resolve('../src/bot/ui.ts');
 
@@ -393,6 +407,83 @@ void (async () => {
   assert.equal(replies.length, 0, 'Мастер не должен отправлять дополнительные сообщения через reply');
 
   console.log('form command wizard flow test: OK');
+
+  if (!latestPlan) {
+    throw new Error('latestPlan is not initialised after plan creation');
+  }
+
+  const existingPlan = latestPlan as ExecutorPlanRecord;
+
+  executorPlansStub.__setActiveExecutorPlanByPhone(existingPlan);
+
+  await __testing.startWizard(ctx, threadKey, threadId);
+
+  setMessage('+77001234567');
+  assert.equal(await __testing.handleWizardTextMessage(ctx), true);
+
+  setMessage('-');
+  assert.equal(await __testing.handleWizardTextMessage(ctx), true);
+
+  await __testing.handlePlanSelection(ctx, threadKey, '7');
+
+  setMessage('2024-03-01\nПовторный комментарий');
+  assert.equal(await __testing.handleWizardTextMessage(ctx), true);
+
+  const duplicateMutationCount = processedMutations.length;
+  const duplicateStepCount = stepLog.length;
+
+  await __testing.handleSummaryDecision(ctx, threadKey, 'confirm');
+
+  assert.equal(
+    processedMutations.length,
+    duplicateMutationCount,
+    'При обнаружении дубля новая мутация не должна создаваться',
+  );
+
+  const duplicateCallbackAnswer = callbackAnswers.at(-1);
+  assert.equal(
+    duplicateCallbackAnswer?.text,
+    'План с этим номером уже существует',
+    'При дубле пользователь должен получать предупреждение',
+  );
+  assert.deepEqual(
+    duplicateCallbackAnswer?.options,
+    { show_alert: true },
+    'Предупреждение о дубле должно показываться через alert',
+  );
+
+  const duplicateSummaryStep = stepLog
+    .slice(duplicateStepCount)
+    .find((step) => step.id === `moderation:form:${threadKey}:summary`);
+  assert.ok(
+    duplicateSummaryStep,
+    'При дубле должен обновляться итоговый шаг с резюме текущего плана',
+  );
+  assert.ok(
+    duplicateSummaryStep?.text.includes('Для этого номера уже есть активный план.'),
+    'Текст предупреждения должен сообщать о существующем плане',
+  );
+  assert.ok(
+    duplicateSummaryStep?.text.includes('Обновите комментарий или продлите текущий план'),
+    'Текст предупреждения должен предлагать обновить или продлить текущий план',
+  );
+  assert.ok(
+    duplicateSummaryStep?.text.includes(`ID плана: ${existingPlan.id}`),
+    'Резюме дубля должно содержать информацию о существующем плане',
+  );
+
+  const duplicateWizardState = session.moderationPlans.threads[
+    threadKey
+  ] as ModerationPlanWizardState | undefined;
+  assert.equal(
+    duplicateWizardState?.step,
+    'summary',
+    'После предупреждения о дубле мастер должен оставаться на шаге подтверждения',
+  );
+
+  executorPlansStub.__setActiveExecutorPlanByPhone(null);
+
+  console.log('form command duplicate prevention test: OK');
 
   remindersStub.__setReminderQueueAvailability(false);
 
