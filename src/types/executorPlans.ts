@@ -16,6 +16,8 @@ export interface ExecutorPlanRecord {
   muted: boolean;
   reminderIndex: number;
   reminderLastSent?: Date;
+  cardMessageId?: number;
+  cardChatId?: number;
   createdAt: Date;
   updatedAt: Date;
 }

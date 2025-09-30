@@ -34,7 +34,11 @@ import {
   EXECUTOR_PLAN_TOGGLE_MUTE_ACTION,
   EXECUTOR_PLAN_UNBLOCK_ACTION,
 } from '../../../services/executorPlans/actions';
-import { findActiveExecutorPlanByPhone, getExecutorPlanById } from '../../../db/executorPlans';
+import {
+  findActiveExecutorPlanByPhone,
+  getExecutorPlanById,
+  updateExecutorPlanCardMessage,
+} from '../../../db/executorPlans';
 import { ui } from '../../ui';
 import { setChatCommands } from '../../services/commands';
 import { buildInlineKeyboard, buildConfirmCancelKeyboard } from '../../keyboards/common';
@@ -1009,10 +1013,24 @@ const handleSummaryDecision = async (
     }
 
     try {
-      await ctx.telegram.sendMessage(plan.chatId, buildPlanSummary(plan), {
+      const message = await ctx.telegram.sendMessage(plan.chatId, buildPlanSummary(plan), {
         message_thread_id: plan.threadId ?? undefined,
         reply_markup: buildExecutorPlanActionKeyboard(plan),
       });
+
+      if (message && typeof message.message_id === 'number') {
+        const chatId =
+          typeof message.chat?.id === 'number' ? message.chat.id : plan.chatId;
+
+        try {
+          await updateExecutorPlanCardMessage(plan.id, message.message_id, chatId);
+        } catch (error) {
+          logger.error(
+            { err: error, planId: plan.id },
+            'Failed to persist executor plan card message metadata',
+          );
+        }
+      }
     } catch (error) {
       logger.error({ err: error, planId: plan.id }, 'Failed to post executor plan card');
     }

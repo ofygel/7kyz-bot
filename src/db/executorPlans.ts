@@ -25,6 +25,8 @@ interface ExecutorPlanRow {
   muted: boolean;
   reminder_index: number;
   reminder_last_sent: Date | string | null;
+  card_message_id: number | null;
+  card_chat_id: string | number | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -101,6 +103,8 @@ const mapRow = (row: ExecutorPlanRow): ExecutorPlanRecord => {
   const reminderLastSent = parseDate(row.reminder_last_sent);
   const endsAt =
     parseDate(row.ends_at) ?? computeEndsAt(startAt, getPlanChoiceDuration(planChoice));
+  const cardChatId = parseNumber(row.card_chat_id);
+  const cardMessageId = parseNumber(row.card_message_id ?? null);
 
   return {
     id: row.id,
@@ -116,6 +120,8 @@ const mapRow = (row: ExecutorPlanRow): ExecutorPlanRecord => {
     muted: Boolean(row.muted),
     reminderIndex: row.reminder_index ?? 0,
     reminderLastSent,
+    cardMessageId,
+    cardChatId,
     createdAt,
     updatedAt,
   } satisfies ExecutorPlanRecord;
@@ -349,6 +355,31 @@ export const updateExecutorPlanComment = async (
       RETURNING *
     `,
     [id, comment ?? null, now],
+  );
+
+  const [row] = rows;
+  return row ? mapRow(row) : null;
+};
+
+export const updateExecutorPlanCardMessage = async (
+  id: number,
+  cardMessageId: number,
+  cardChatId: number | undefined,
+  client?: DatabaseClient,
+): Promise<ExecutorPlanRecord | null> => {
+  const db = getClient(client);
+  const now = new Date();
+
+  const { rows } = await db.query<ExecutorPlanRow>(
+    `
+      UPDATE executor_plans
+      SET card_message_id = $2,
+          card_chat_id = $3,
+          updated_at = $4
+      WHERE id = $1
+      RETURNING *
+    `,
+    [id, cardMessageId, cardChatId ?? null, now],
   );
 
   const [row] = rows;
