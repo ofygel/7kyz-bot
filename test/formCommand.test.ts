@@ -96,6 +96,7 @@ let activePlanByPhone: ExecutorPlanRecord | null = null;
           status: 'active',
           muted: false,
           reminderIndex: 0,
+          cardChatId: payload.chatId,
           createdAt: new Date(),
           updatedAt: new Date(),
         } satisfies ExecutorPlanRecord;
@@ -136,6 +137,24 @@ const executorPlansModulePath = requireFn.resolve('../src/db/executorPlans.ts');
       latestPlan && latestPlan.id === id ? latestPlan : null,
     findActiveExecutorPlanByPhone: async (phone: string) =>
       activePlanByPhone && activePlanByPhone.phone === phone ? activePlanByPhone : null,
+    updateExecutorPlanCardMessage: async (
+      id: number,
+      cardMessageId: number,
+      cardChatId: number | undefined,
+    ) => {
+      if (!latestPlan || latestPlan.id !== id) {
+        return null;
+      }
+
+      latestPlan = {
+        ...latestPlan,
+        cardMessageId,
+        cardChatId: cardChatId ?? latestPlan.cardChatId,
+        updatedAt: new Date(),
+      } satisfies ExecutorPlanRecord;
+
+      return latestPlan;
+    },
     __setActiveExecutorPlanByPhone: (plan: ExecutorPlanRecord | null) => {
       activePlanByPhone = plan;
     },
@@ -215,7 +234,12 @@ void (async () => {
 
   const replies: string[] = [];
   const callbackAnswers: Array<{ text?: string; options?: unknown }> = [];
-  const sentMessages: Array<{ chatId: number; text: string; options: unknown }> = [];
+  const sentMessages: Array<{
+    chatId: number;
+    text: string;
+    options: unknown;
+    messageId: number;
+  }> = [];
 
   const ctx = {
     chat: { id: 123, type: 'supergroup' },
@@ -223,8 +247,9 @@ void (async () => {
     auth: {} as Record<string, unknown>,
     telegram: {
       sendMessage: async (chatId: number, text: string, options: unknown) => {
-        sentMessages.push({ chatId, text, options });
-        return { message_id: sentMessages.length };
+        const messageId = sentMessages.length + 1;
+        sentMessages.push({ chatId, text, options, messageId });
+        return { message_id: messageId, chat: { id: chatId } };
       },
     },
     reply: async (text: string) => {
@@ -416,6 +441,23 @@ void (async () => {
   assert.equal(sentMessages.length, 1, 'После сохранения нужно публиковать карточку в теме');
   const postedMessage = sentMessages[0];
   assert.equal(postedMessage.chatId, 123, 'Карточка должна публиковаться в канале модерации');
+  assert.equal(
+    latestPlan?.cardMessageId,
+    postedMessage.messageId,
+    'Идентификатор карточки должен сохраняться в записи плана',
+  );
+  const { getExecutorPlanById } = await import('../src/db/executorPlans');
+  const persistedPlan = await getExecutorPlanById(latestPlan?.id ?? 0);
+  assert.equal(
+    persistedPlan?.cardMessageId,
+    postedMessage.messageId,
+    'Идентификатор карточки должен считываться из базы',
+  );
+  assert.equal(
+    persistedPlan?.cardChatId,
+    postedMessage.chatId,
+    'Чат публикации карточки должен сохраняться в записи плана',
+  );
   const replyMarkup = (postedMessage.options as { reply_markup?: { inline_keyboard?: unknown[] } }).reply_markup;
   assert.ok(replyMarkup, 'Карточка должна содержать клавиатуру быстрых действий');
   const inlineKeyboard = replyMarkup?.inline_keyboard as { text: string }[][] | undefined;
