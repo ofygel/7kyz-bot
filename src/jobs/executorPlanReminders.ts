@@ -11,6 +11,7 @@ import {
 import type { ExecutorPlanRecord } from '../types';
 import { buildReminderMessage, REMINDER_OFFSETS_HOURS } from '../services/executorPlans/reminders';
 import {
+  enqueueExecutorPlanMutation,
   flushExecutorPlanMutations,
   onExecutorPlanMutation,
   type ExecutorPlanMutationOutcome,
@@ -37,6 +38,15 @@ let worker: Worker<ReminderJobData> | null = null;
 let botRef: Telegraf<BotContext> | null = null;
 let started = false;
 let reminderQueueWarningSent = false;
+
+type ReminderModuleOverrides = {
+  getExecutorPlanById?: typeof getExecutorPlanById;
+  updateExecutorPlanReminderIndex?: typeof updateExecutorPlanReminderIndex;
+  scheduleReminder?: (plan: ExecutorPlanRecord) => Promise<void>;
+  enqueueExecutorPlanMutation?: typeof enqueueExecutorPlanMutation;
+};
+
+const overrides: ReminderModuleOverrides = {};
 
 const buildJobId = (planId: number, reminderIndex: number): string =>
   `${planId}:${reminderIndex}`;
@@ -137,10 +147,10 @@ const handleMutationOutcome = async (
 ): Promise<void> => {
   switch (outcome.type) {
     case 'created':
-      await scheduleReminder(outcome.plan);
+      await resolveScheduleReminder(outcome.plan);
       break;
     case 'updated':
-      await scheduleReminder(outcome.plan);
+      await resolveScheduleReminder(outcome.plan);
       break;
     case 'deleted':
       await removeScheduledReminders(outcome.id);
@@ -168,20 +178,30 @@ const postReminderMessage = async (
   }
 };
 
+const resolveScheduleReminder = async (plan: ExecutorPlanRecord): Promise<void> => {
+  const handler = overrides.scheduleReminder ?? scheduleReminder;
+  await handler(plan);
+};
+
 const handleReminderJob = async (data: ReminderJobData): Promise<void> => {
-  const plan = await getExecutorPlanById(data.planId);
+  const getPlanById = overrides.getExecutorPlanById ?? getExecutorPlanById;
+  const updateReminderIndex =
+    overrides.updateExecutorPlanReminderIndex ?? updateExecutorPlanReminderIndex;
+  const enqueueMutation = overrides.enqueueExecutorPlanMutation ?? enqueueExecutorPlanMutation;
+
+  const plan = await getPlanById(data.planId);
   if (!plan) {
     await removeScheduledReminders(data.planId);
     return;
   }
 
   if (plan.reminderIndex !== data.reminderIndex) {
-    await scheduleReminder(plan);
+    await resolveScheduleReminder(plan);
     return;
   }
 
   if (plan.status !== 'active' || plan.muted) {
-    await scheduleReminder(plan);
+    await resolveScheduleReminder(plan);
     return;
   }
 
@@ -193,7 +213,7 @@ const handleReminderJob = async (data: ReminderJobData): Promise<void> => {
 
   await postReminderMessage(telegram, plan, data.reminderIndex);
 
-  const updated = await updateExecutorPlanReminderIndex(
+  const updated = await updateReminderIndex(
     plan.id,
     data.reminderIndex,
     data.reminderIndex + 1,
@@ -201,7 +221,24 @@ const handleReminderJob = async (data: ReminderJobData): Promise<void> => {
   );
 
   if (updated) {
-    await scheduleReminder(updated);
+    if (updated.reminderIndex >= REMINDER_OFFSETS_HOURS.length) {
+      try {
+        await enqueueMutation({
+          type: 'set-status',
+          payload: { id: updated.id, status: 'completed' },
+        });
+      } catch (error) {
+        logger.error(
+          { err: error, planId: updated.id },
+          'Failed to enqueue executor plan completion mutation',
+        );
+      }
+
+      await removeScheduledReminders(updated.id);
+      return;
+    }
+
+    await resolveScheduleReminder(updated);
   }
 };
 
@@ -265,14 +302,47 @@ const initialisePlanSchedules = async (): Promise<void> => {
   }
 
   for (const plan of plans) {
-    await scheduleReminder(plan);
+    await resolveScheduleReminder(plan);
   }
 };
 
 export const __testing = {
   computeReminderTime,
+  handleReminderJob,
+  resetBotRef: () => {
+    botRef = null;
+  },
   resetQueueWarning: () => {
     reminderQueueWarningSent = false;
+  },
+  setBotRef: (bot: Telegraf<BotContext> | null) => {
+    botRef = bot;
+  },
+  setEnqueueExecutorPlanMutationOverride: (
+    handler: typeof enqueueExecutorPlanMutation | undefined,
+  ) => {
+    overrides.enqueueExecutorPlanMutation = handler;
+  },
+  setGetExecutorPlanByIdOverride: (
+    handler: typeof getExecutorPlanById | undefined,
+  ) => {
+    overrides.getExecutorPlanById = handler;
+  },
+  setScheduleReminderOverride: (
+    handler: ((plan: ExecutorPlanRecord) => Promise<void>) | undefined,
+  ) => {
+    overrides.scheduleReminder = handler;
+  },
+  setUpdateExecutorPlanReminderIndexOverride: (
+    handler: typeof updateExecutorPlanReminderIndex | undefined,
+  ) => {
+    overrides.updateExecutorPlanReminderIndex = handler;
+  },
+  resetOverrides: () => {
+    overrides.getExecutorPlanById = undefined;
+    overrides.updateExecutorPlanReminderIndex = undefined;
+    overrides.scheduleReminder = undefined;
+    overrides.enqueueExecutorPlanMutation = undefined;
   },
 };
 
