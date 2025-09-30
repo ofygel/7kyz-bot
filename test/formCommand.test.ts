@@ -277,6 +277,31 @@ void (async () => {
   assert.equal(wizardState?.nickname, '@executor', 'Ник должен сохраняться');
   assert.equal(wizardState?.step, 'plan', 'После ника бот должен ожидать выбор тарифа');
 
+  const planSteps = stepLog.filter((step) => step.id === `moderation:form:${threadKey}:plan`);
+  const planStepEntry = planSteps.at(-1);
+  assert.ok(planStepEntry, 'Шаг выбора тарифа должен отображаться в интерфейсе');
+  const planKeyboard = planStepEntry?.keyboard as
+    | { inline_keyboard?: { text: string }[][] }
+    | undefined;
+  assert.ok(planKeyboard?.inline_keyboard, 'Клавиатура выбора тарифа должна быть доступна');
+  const planButtonLabels = planKeyboard.inline_keyboard.map((row) =>
+    row.map((button) => button.text),
+  );
+  assert.deepEqual(
+    planButtonLabels,
+    [
+      [
+        __testing.formatPlanChoiceLabel('trial'),
+        __testing.formatPlanChoiceLabel('7'),
+      ],
+      [
+        __testing.formatPlanChoiceLabel('15'),
+        __testing.formatPlanChoiceLabel('30'),
+      ],
+    ],
+    'Клавиатура выбора тарифа должна располагать варианты по две кнопки в ряд',
+  );
+
   setMessage('15');
   assert.equal(await __testing.handleWizardTextMessage(ctx), true);
   assert.deepEqual(
