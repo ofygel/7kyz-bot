@@ -56,6 +56,7 @@ import { config, logger } from './config';
 import { pool } from './db';
 import { ensureDatabaseSchema } from './db/bootstrap';
 import { observeStartupTaskRetryScheduled, observeStartupTaskRetrySuccess } from './metrics/prometheus';
+import { closeRedisClient } from './infra/redis';
 
 export const app = new Telegraf<BotContext>(config.bot.token);
 
@@ -140,6 +141,8 @@ const cleanupTasks: CleanupTask[] = [];
 export const registerCleanupTask = (task: CleanupTask): void => {
   cleanupTasks.push(task);
 };
+
+registerCleanupTask(closeRedisClient);
 
 const stopRetryTimer = (name: string): void => {
   const timer = retryTimers.get(name);

@@ -42,3 +42,12 @@ export const getRedisClient = (): RedisClient => {
 
   return client;
 };
+
+export const closeRedisClient = async (): Promise<void> => {
+  try {
+    await client?.quit();
+  } finally {
+    client = undefined;
+    initialised = false;
+  }
+};
