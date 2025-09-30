@@ -189,6 +189,26 @@ export const getExecutorPlanById = async (
   return row ? mapRow(row) : null;
 };
 
+export const findActiveExecutorPlanByPhone = async (
+  phone: string,
+  client?: DatabaseClient,
+): Promise<ExecutorPlanRecord | null> => {
+  const db = getClient(client);
+  const { rows } = await db.query<ExecutorPlanRow>(
+    `
+      SELECT *
+      FROM executor_plans
+      WHERE phone = $1 AND status IN ('active', 'blocked')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [phone],
+  );
+
+  const [row] = rows;
+  return row ? mapRow(row) : null;
+};
+
 export const updateExecutorPlanReminderIndex = async (
   id: number,
   expectedIndex: number,
