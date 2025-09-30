@@ -20,6 +20,13 @@ import { buildExecutorPlanActionKeyboard } from '../bot/ui/executorPlans';
 const QUEUE_NAME = 'executor-plan-reminders';
 const REMINDER_JOB_NAME = 'executor-plan-reminder';
 
+export const EXECUTOR_PLAN_REMINDER_QUEUE_WARNING_MESSAGE = [
+  '⚠️ Напоминания по планам исполнителей временно отключены.',
+  'Redis недоступен или не настроен.',
+  'Проверьте переменную окружения REDIS_URL и убедитесь, что Redis запущен.',
+  'После восстановления подключения перезапустите бота, чтобы возобновить отправку напоминаний.',
+].join('\n');
+
 interface ReminderJobData {
   planId: number;
   reminderIndex: number;
@@ -29,6 +36,7 @@ let queue: Queue<ReminderJobData> | null = null;
 let worker: Worker<ReminderJobData> | null = null;
 let botRef: Telegraf<BotContext> | null = null;
 let started = false;
+let reminderQueueWarningSent = false;
 
 const buildJobId = (planId: number, reminderIndex: number): string =>
   `${planId}:${reminderIndex}`;
@@ -92,6 +100,36 @@ const scheduleReminder = async (plan: ExecutorPlanRecord): Promise<void> => {
   };
 
   await queue.add(REMINDER_JOB_NAME, { planId: plan.id, reminderIndex: plan.reminderIndex }, options);
+};
+
+export const notifyExecutorPlanReminderQueueUnavailable = async (
+  telegram: Telegram | null,
+  chatId: number,
+  threadId?: number | null,
+): Promise<void> => {
+  if (!telegram) {
+    logger.warn(
+      { chatId },
+      'Telegram instance is not available to notify about executor plan reminders queue',
+    );
+    return;
+  }
+
+  if (reminderQueueWarningSent) {
+    return;
+  }
+
+  try {
+    await telegram.sendMessage(chatId, EXECUTOR_PLAN_REMINDER_QUEUE_WARNING_MESSAGE, {
+      message_thread_id: threadId ?? undefined,
+    });
+    reminderQueueWarningSent = true;
+  } catch (error) {
+    logger.error(
+      { err: error, chatId, threadId },
+      'Failed to notify moderators about executor plan reminders queue unavailability',
+    );
+  }
 };
 
 const handleMutationOutcome = async (
@@ -211,6 +249,8 @@ const ensureQueue = (): boolean => {
   return true;
 };
 
+export const ensureExecutorPlanReminderQueue = (): boolean => ensureQueue();
+
 const initialisePlanSchedules = async (): Promise<void> => {
   if (!ensureQueue()) {
     return;
@@ -231,6 +271,9 @@ const initialisePlanSchedules = async (): Promise<void> => {
 
 export const __testing = {
   computeReminderTime,
+  resetQueueWarning: () => {
+    reminderQueueWarningSent = false;
+  },
 };
 
 export const startExecutorPlanReminderService = (
@@ -277,6 +320,11 @@ export const scheduleExecutorPlanReminder = async (
   plan: ExecutorPlanRecord,
 ): Promise<void> => {
   if (!ensureQueue()) {
+    await notifyExecutorPlanReminderQueueUnavailable(
+      botRef?.telegram ?? null,
+      plan.chatId,
+      plan.threadId,
+    );
     return;
   }
 

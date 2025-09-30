@@ -8,6 +8,13 @@ const requireFn = createRequire(__filename);
 
 const remindersModulePath = requireFn.resolve('../src/jobs/executorPlanReminders.ts');
 const scheduledPlans: ExecutorPlanRecord[] = [];
+let reminderQueueAvailable = true;
+const reminderQueueWarningMessage = [
+  '⚠️ Напоминания по планам исполнителей временно отключены.',
+  'Redis недоступен или не настроен.',
+  'Проверьте переменную окружения REDIS_URL и убедитесь, что Redis запущен.',
+  'После восстановления подключения перезапустите бота, чтобы возобновить отправку напоминаний.',
+].join('\n');
 
 (requireFn.cache as Record<string, NodeModule | undefined>)[remindersModulePath] = {
   id: remindersModulePath,
@@ -15,11 +22,44 @@ const scheduledPlans: ExecutorPlanRecord[] = [];
   loaded: true,
   exports: {
     scheduleExecutorPlanReminder: async (plan: ExecutorPlanRecord) => {
+      if (!reminderQueueAvailable) {
+        return;
+      }
+
       scheduledPlans.push(plan);
     },
     cancelExecutorPlanReminders: async () => {},
+    ensureExecutorPlanReminderQueue: () => reminderQueueAvailable,
+    notifyExecutorPlanReminderQueueUnavailable: async (
+      telegram: { sendMessage: (chatId: number, text: string, options: unknown) => Promise<unknown> } | null,
+      chatId: number,
+      threadId?: number | null,
+    ) => {
+      if (!telegram) {
+        return;
+      }
+
+      await telegram.sendMessage(chatId, reminderQueueWarningMessage, {
+        message_thread_id: threadId ?? undefined,
+      });
+    },
+    EXECUTOR_PLAN_REMINDER_QUEUE_WARNING_MESSAGE: reminderQueueWarningMessage,
+    __setReminderQueueAvailability: (value: boolean) => {
+      reminderQueueAvailable = value;
+    },
   },
 } as unknown as NodeModule;
+
+const remindersStub = ((requireFn.cache as Record<string, NodeModule | undefined>)[
+  remindersModulePath
+]?.exports ?? null) as {
+  EXECUTOR_PLAN_REMINDER_QUEUE_WARNING_MESSAGE: string;
+  __setReminderQueueAvailability: (value: boolean) => void;
+} | null;
+
+if (!remindersStub) {
+  throw new Error('Failed to initialise reminders stub');
+}
 
 const queueModulePath = requireFn.resolve('../src/infra/executorPlanQueue.ts');
 
@@ -353,6 +393,93 @@ void (async () => {
   assert.equal(replies.length, 0, 'Мастер не должен отправлять дополнительные сообщения через reply');
 
   console.log('form command wizard flow test: OK');
+
+  remindersStub.__setReminderQueueAvailability(false);
+
+  const previousLatestPlan = latestPlan;
+  const previousMutationCount = processedMutations.length;
+
+  const missingRedisThreadId = 13337;
+  const missingRedisThreadKey = __testing.getThreadKey(missingRedisThreadId);
+
+  const missingRedisSession = {
+    ephemeralMessages: [],
+    isAuthenticated: false,
+    safeMode: false,
+    isDegraded: false,
+    awaitingPhone: false,
+    authSnapshot: {} as Record<string, unknown>,
+    executor: {} as Record<string, unknown>,
+    client: {} as Record<string, unknown>,
+    ui: { steps: {}, homeActions: [] },
+    moderationPlans: {
+      threads: {
+        [missingRedisThreadKey]: {
+          step: 'summary',
+          threadId: missingRedisThreadId,
+          phone: '+77001234567',
+          planChoice: '7',
+          startAt: new Date(),
+        },
+      },
+      edits: {},
+    },
+    support: { status: 'idle' },
+    onboarding: { active: false },
+  } as unknown as BotContext['session'];
+
+  const missingRedisReplies: string[] = [];
+  const missingRedisCallbackAnswers: Array<{ text?: string; options?: unknown }> = [];
+  const missingRedisSentMessages: Array<{ chatId: number; text: string; options: unknown }> = [];
+
+  const missingRedisCtx = {
+    chat: { id: 123, type: 'supergroup' },
+    session: missingRedisSession,
+    auth: {} as Record<string, unknown>,
+    telegram: {
+      sendMessage: async (chatId: number, text: string, options: unknown) => {
+        missingRedisSentMessages.push({ chatId, text, options });
+        return { message_id: missingRedisSentMessages.length };
+      },
+    },
+    reply: async (text: string) => {
+      missingRedisReplies.push(text);
+      return { message_id: missingRedisReplies.length };
+    },
+    answerCbQuery: async (text?: string, options?: unknown) => {
+      missingRedisCallbackAnswers.push({ text, options });
+    },
+  } as unknown as BotContext;
+
+  await __testing.handleSummaryDecision(missingRedisCtx, missingRedisThreadKey, 'confirm');
+
+  assert.ok(
+    missingRedisCallbackAnswers.some((entry) => entry.text === 'План сохранён'),
+    'При отключённом Redis подтверждение должно отправляться пользователю',
+  );
+
+  const reminderWarningMessage = missingRedisSentMessages.find(
+    (entry) => entry.text === remindersStub.EXECUTOR_PLAN_REMINDER_QUEUE_WARNING_MESSAGE,
+  );
+  assert.ok(
+    reminderWarningMessage,
+    'При отключённом Redis в модераторский чат должно отправляться предупреждение',
+  );
+  assert.deepEqual(
+    reminderWarningMessage?.options,
+    { message_thread_id: missingRedisThreadId },
+    'Предупреждение должно публиковаться в той же ветке модераторского чата',
+  );
+
+  assert.equal(
+    scheduledPlans.length,
+    1,
+    'При отключённом Redis напоминание не должно планироваться',
+  );
+
+  remindersStub.__setReminderQueueAvailability(true);
+  processedMutations.length = previousMutationCount;
+  latestPlan = previousLatestPlan;
 
   if (!latestPlan) {
     throw new Error('latestPlan is not initialised');

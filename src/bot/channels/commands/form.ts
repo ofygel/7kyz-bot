@@ -15,6 +15,8 @@ import type {
 } from '../../../types';
 import {
   cancelExecutorPlanReminders,
+  ensureExecutorPlanReminderQueue,
+  notifyExecutorPlanReminderQueueUnavailable,
   scheduleExecutorPlanReminder,
 } from '../../../jobs/executorPlanReminders';
 import {
@@ -981,6 +983,15 @@ const handleSummaryDecision = async (
       });
     } catch (error) {
       logger.error({ err: error, planId: plan.id }, 'Failed to post executor plan card');
+    }
+
+    const reminderQueueAvailable = ensureExecutorPlanReminderQueue();
+    if (!reminderQueueAvailable) {
+      await notifyExecutorPlanReminderQueueUnavailable(
+        ctx.telegram,
+        plan.chatId,
+        plan.threadId ?? state.threadId,
+      );
     }
 
     await scheduleExecutorPlanReminder(plan);
