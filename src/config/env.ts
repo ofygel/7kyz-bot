@@ -9,6 +9,8 @@ const REQUIRED_ENV_VARS = [
   'KASPI_CARD',
   'KASPI_NAME',
   'KASPI_PHONE',
+  'SUPPORT_USERNAME',
+  'SUPPORT_URL',
   'WEBHOOK_DOMAIN',
   'WEBHOOK_SECRET',
 ] as const;
@@ -287,6 +289,11 @@ export interface AppConfig {
     domain: string;
     secret: string;
   };
+  support: {
+    username: string;
+    mention: string;
+    url: string;
+  };
   database: {
     url: string;
     ssl: boolean;
@@ -345,6 +352,14 @@ export const loadConfig = (): AppConfig => {
   const redisUrl = getOptionalString('REDIS_URL');
   const sessionCachePrefix = getOptionalString('SESSION_CACHE_PREFIX') ?? 'session:';
 
+  const supportUsernameRaw = getRequiredString('SUPPORT_USERNAME');
+  const supportUsername = supportUsernameRaw.startsWith('@')
+    ? supportUsernameRaw.slice(1)
+    : supportUsernameRaw;
+  const supportMention = supportUsernameRaw.startsWith('@')
+    ? supportUsernameRaw
+    : `@${supportUsername}`;
+
   return {
     nodeEnv: process.env.NODE_ENV ?? 'development',
     logLevel: resolveLogLevel(process.env.PINO_LEVEL ?? process.env.LOG_LEVEL),
@@ -364,6 +379,11 @@ export const loadConfig = (): AppConfig => {
     webhook: {
       domain: getRequiredString('WEBHOOK_DOMAIN'),
       secret: getRequiredString('WEBHOOK_SECRET'),
+    },
+    support: {
+      username: supportUsername,
+      mention: supportMention,
+      url: getRequiredString('SUPPORT_URL'),
     },
     database: {
       url: process.env.DATABASE_URL as string,
@@ -425,6 +445,7 @@ export const config: AppConfig = loadConfig();
 Object.freeze(config.bot);
 Object.freeze(config.features);
 Object.freeze(config.webhook);
+Object.freeze(config.support);
 Object.freeze(config.database.pool);
 Object.freeze(config.database);
 if (config.session.redis) {

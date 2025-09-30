@@ -2,6 +2,7 @@ import { Markup, Telegraf } from 'telegraf';
 
 import type { BotContext } from '../../types';
 import { ui } from '../../ui';
+import { config } from '../../../config';
 import {
   EXECUTOR_MENU_ACTION,
   EXECUTOR_MENU_TEXT_LABELS,
@@ -12,11 +13,11 @@ import { getExecutorRoleCopy } from '../../copy';
 import { presentRolePick } from '../../commands/start';
 
 const ORDERS_INFO_STEP_ID = 'executor:orders:info';
-const SUPPORT_USERNAME = 'seven_support';
-const SUPPORT_LINK = `https://t.me/${SUPPORT_USERNAME}`;
+const SUPPORT_MENTION = config.support.mention;
+const SUPPORT_LINK = config.support.url;
 
 export const EXECUTOR_SUBSCRIPTION_REQUIRED_MESSAGE =
-  'Подписка на канал заказов оформляется через поддержку. Напишите @seven_support, чтобы получить инструкции и ссылку.';
+  `Подписка на канал заказов оформляется через поддержку. Напишите ${SUPPORT_MENTION}, чтобы получить инструкции и ссылку.`;
 
 const buildOrdersInfoText = (ctx: BotContext): string => {
   const state = ensureExecutorState(ctx);
@@ -29,7 +30,7 @@ const buildOrdersInfoText = (ctx: BotContext): string => {
   return [
     `${copy.emoji} Доступ к заказам`,
     '',
-    'Чтобы попасть в канал с заказами, напишите @seven_support. Команда оформит подписку, проверит оплату и пришлёт актуальную ссылку.',
+    `Чтобы попасть в канал с заказами, напишите ${SUPPORT_MENTION}. Команда оформит подписку, проверит оплату и пришлёт актуальную ссылку.`,
     '',
     'После подключения следите за обновлениями канала и уточняйте любые вопросы у поддержки.',
   ].join('\n');
