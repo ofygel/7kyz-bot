@@ -487,6 +487,106 @@ const renderDetailsStep = async (
   });
 };
 
+const extractErrorMessage = (value: unknown): string | undefined => {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  if (value instanceof Error && typeof value.message === 'string') {
+    return value.message;
+  }
+
+  if ('message' in value && typeof (value as { message?: unknown }).message === 'string') {
+    return (value as { message: string }).message;
+  }
+
+  if (
+    'description' in value &&
+    typeof (value as { description?: unknown }).description === 'string'
+  ) {
+    return (value as { description: string }).description;
+  }
+
+  return undefined;
+};
+
+const isMessageNotModifiedError = (error: unknown): boolean => {
+  const message = extractErrorMessage(error);
+  if (typeof message === 'string' && message.includes('message is not modified')) {
+    return true;
+  }
+
+  const response = (error as { response?: unknown } | null | undefined)?.response;
+  const responseMessage = extractErrorMessage(response);
+  return typeof responseMessage === 'string'
+    ? responseMessage.includes('message is not modified')
+    : false;
+};
+
+const getPlanCardTarget = (
+  plan: ExecutorPlanRecord,
+): { chatId: number; messageId: number } | undefined => {
+  if (typeof plan.cardMessageId !== 'number') {
+    return undefined;
+  }
+
+  const chatId = plan.cardChatId ?? plan.chatId;
+  return { chatId, messageId: plan.cardMessageId };
+};
+
+const refreshPlanCardMessage = async (
+  ctx: BotContext,
+  plan: ExecutorPlanRecord,
+): Promise<boolean> => {
+  const target = getPlanCardTarget(plan);
+  if (!target) {
+    logger.debug({ planId: plan.id }, 'Skipping executor plan card update: no message id');
+    return false;
+  }
+
+  const summary = buildPlanSummary(plan);
+  const keyboard = buildExecutorPlanActionKeyboard(plan);
+
+  try {
+    await ctx.telegram.editMessageText(
+      target.chatId,
+      target.messageId,
+      undefined,
+      summary,
+      { reply_markup: keyboard },
+    );
+    return true;
+  } catch (error) {
+    if (isMessageNotModifiedError(error)) {
+      try {
+        await ctx.telegram.editMessageReplyMarkup(
+          target.chatId,
+          target.messageId,
+          undefined,
+          keyboard,
+        );
+        return true;
+      } catch (markupError) {
+        logger.error(
+          { err: markupError, planId: plan.id, messageId: target.messageId },
+          'Failed to update executor plan card reply markup',
+        );
+      }
+      return false;
+    }
+
+    logger.error(
+      { err: error, planId: plan.id, messageId: target.messageId },
+      'Failed to update executor plan card message',
+    );
+    return false;
+  }
+};
+
 const renderSummaryStep = async (
   ctx: BotContext,
   threadKey: string,
@@ -803,22 +903,7 @@ const handlePlanEditTextMessage = async (ctx: BotContext): Promise<boolean> => {
     }
 
     const plan = outcome.plan;
-    let cardUpdated = false;
-    try {
-      await ctx.telegram.editMessageText(
-        plan.chatId,
-        editState.messageId,
-        undefined,
-        buildPlanSummary(plan),
-        { reply_markup: buildExecutorPlanActionKeyboard(plan) },
-      );
-      cardUpdated = true;
-    } catch (error) {
-      logger.error(
-        { err: error, planId: plan.id, messageId: editState.messageId },
-        'Failed to update executor plan card after comment edit',
-      );
-    }
+    const cardUpdated = await refreshPlanCardMessage(ctx, plan);
 
     const lines = ['Комментарий обновлён ✅'];
     lines.push('', plan.comment ? `Новый комментарий: ${plan.comment}` : 'Комментарий удалён.');
@@ -1305,6 +1390,7 @@ const handleExtendCallback = async (ctx: BotContext, planId: number, days: numbe
     }
 
     await ctx.answerCbQuery('План продлён');
+    await refreshPlanCardMessage(ctx, outcome.plan);
     await scheduleExecutorPlanReminder(outcome.plan);
   });
 };
@@ -1326,6 +1412,7 @@ const handleStatusCallback = async (
     }
 
     await ctx.answerCbQuery('Статус обновлён');
+    await refreshPlanCardMessage(ctx, outcome.plan);
     if (targetStatus !== 'blocked') {
       await scheduleExecutorPlanReminder(outcome.plan);
     }
@@ -1359,6 +1446,7 @@ const handleToggleMuteCallback = async (ctx: BotContext, planId: number): Promis
     }
 
     await ctx.answerCbQuery(outcome.plan.muted ? 'Уведомления отключены' : 'Уведомления включены');
+    await refreshPlanCardMessage(ctx, outcome.plan);
     if (!outcome.plan.muted) {
       await scheduleExecutorPlanReminder(outcome.plan);
     }
@@ -1386,35 +1474,24 @@ const handleEditCallback = async (ctx: BotContext, planId: number): Promise<void
     return;
   }
 
-  const callbackMessage =
-    ctx.callbackQuery && 'message' in ctx.callbackQuery
-      ? ctx.callbackQuery.message
-      : undefined;
-  const messageId =
-    callbackMessage &&
-    typeof callbackMessage === 'object' &&
-    'message_id' in callbackMessage &&
-    typeof (callbackMessage as { message_id?: unknown }).message_id === 'number'
-      ? (callbackMessage as { message_id: number }).message_id
-      : undefined;
-
-  if (typeof messageId !== 'number') {
+  const cardTarget = getPlanCardTarget(plan);
+  if (!cardTarget) {
     if (typeof ctx.answerCbQuery === 'function') {
       try {
-        await ctx.answerCbQuery('Сообщение недоступно', { show_alert: true });
+        await ctx.answerCbQuery('Карточка плана недоступна', { show_alert: true });
       } catch (error) {
-        logger.debug({ err: error }, 'Failed to answer edit callback without message');
+        logger.debug({ err: error }, 'Failed to answer edit callback without card');
       }
     }
     return;
   }
 
-  const threadId = getThreadIdFromContext(ctx);
+  const threadId = getThreadIdFromContext(ctx) ?? plan.threadId;
   const threadKey = getThreadKey(threadId);
   setEditState(ctx, threadKey, {
     planId: plan.id,
-    chatId: plan.chatId,
-    messageId,
+    chatId: cardTarget.chatId,
+    messageId: cardTarget.messageId,
     threadId,
   });
 
@@ -1587,6 +1664,9 @@ export const __testing = {
   handleSummaryDecision,
   handlePlanEditTextMessage,
   handleEditCallback,
+  handleExtendCallback,
+  handleStatusCallback,
+  handleToggleMuteCallback,
   buildPlanInputFromState,
   parseArgs,
 };

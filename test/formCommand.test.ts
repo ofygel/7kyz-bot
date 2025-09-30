@@ -120,6 +120,54 @@ let activePlanByPhone: ExecutorPlanRecord | null = null;
         return { type: 'updated', plan: latestPlan } as const;
       }
 
+      if (mutation.type === 'extend') {
+        if (!latestPlan || latestPlan.id !== (mutation.payload as { id: number }).id) {
+          return null;
+        }
+
+        const days = Number((mutation.payload as { days: number }).days) || 0;
+        const nextEndsAt = new Date(latestPlan.endsAt.getTime() + days * 24 * 60 * 60 * 1000);
+        latestPlan = {
+          ...latestPlan,
+          endsAt: nextEndsAt,
+          reminderIndex: 0,
+          reminderLastSent: undefined,
+          updatedAt: new Date(),
+        } satisfies ExecutorPlanRecord;
+
+        return { type: 'updated', plan: latestPlan } as const;
+      }
+
+      if (mutation.type === 'set-status') {
+        if (!latestPlan || latestPlan.id !== (mutation.payload as { id: number }).id) {
+          return null;
+        }
+
+        const status = (mutation.payload as { status: ExecutorPlanRecord['status'] }).status;
+        latestPlan = {
+          ...latestPlan,
+          status,
+          updatedAt: new Date(),
+        } satisfies ExecutorPlanRecord;
+
+        return { type: 'updated', plan: latestPlan } as const;
+      }
+
+      if (mutation.type === 'mute') {
+        if (!latestPlan || latestPlan.id !== (mutation.payload as { id: number }).id) {
+          return null;
+        }
+
+        const muted = Boolean((mutation.payload as { muted: boolean }).muted);
+        latestPlan = {
+          ...latestPlan,
+          muted,
+          updatedAt: new Date(),
+        } satisfies ExecutorPlanRecord;
+
+        return { type: 'updated', plan: latestPlan } as const;
+      }
+
       return null;
     },
     onExecutorPlanMutation: () => {},
@@ -441,13 +489,16 @@ void (async () => {
   assert.equal(sentMessages.length, 1, 'После сохранения нужно публиковать карточку в теме');
   const postedMessage = sentMessages[0];
   assert.equal(postedMessage.chatId, 123, 'Карточка должна публиковаться в канале модерации');
+  const latestPlanSnapshot = latestPlan as ExecutorPlanRecord | null;
   assert.equal(
-    latestPlan?.cardMessageId,
+    latestPlanSnapshot?.cardMessageId,
     postedMessage.messageId,
     'Идентификатор карточки должен сохраняться в записи плана',
   );
   const { getExecutorPlanById } = await import('../src/db/executorPlans');
-  const persistedPlan = await getExecutorPlanById(latestPlan?.id ?? 0);
+  const persistedPlan = await getExecutorPlanById(
+    latestPlanSnapshot ? latestPlanSnapshot.id : 0,
+  );
   assert.equal(
     persistedPlan?.cardMessageId,
     postedMessage.messageId,
@@ -556,7 +607,7 @@ void (async () => {
 
   remindersStub.__setReminderQueueAvailability(false);
 
-  const previousLatestPlan = latestPlan;
+  const callbacksPreviousLatestPlan = latestPlan;
   const previousMutationCount = processedMutations.length;
 
   const missingRedisThreadId = 13337;
@@ -639,7 +690,7 @@ void (async () => {
 
   remindersStub.__setReminderQueueAvailability(true);
   processedMutations.length = previousMutationCount;
-  latestPlan = previousLatestPlan;
+  latestPlan = callbacksPreviousLatestPlan;
 
   if (!latestPlan) {
     throw new Error('latestPlan is not initialised');
@@ -664,6 +715,7 @@ void (async () => {
 
   const editCallbackAnswers: Array<{ text?: string; options?: unknown }> = [];
   const editedMessages: Array<{ chatId: number; messageId: number; text: string; options: unknown }> = [];
+  const editedMarkups: Array<{ chatId: number; messageId: number; markup: unknown }> = [];
 
   const editThreadId = planForEdit.threadId ?? threadId;
   const editThreadKey = __testing.getThreadKey(editThreadId);
@@ -681,6 +733,15 @@ void (async () => {
         options: unknown,
       ) => {
         editedMessages.push({ chatId, messageId, text, options });
+        return { message_id: messageId };
+      },
+      editMessageReplyMarkup: async (
+        chatId: number,
+        messageId: number,
+        _inlineMessageId: unknown,
+        replyMarkup: unknown,
+      ) => {
+        editedMarkups.push({ chatId, messageId, markup: replyMarkup });
         return { message_id: messageId };
       },
     },
@@ -706,7 +767,16 @@ void (async () => {
   const editState = editSession.moderationPlans.edits[editThreadKey];
   assert.ok(editState, 'После нажатия ✏️ должно сохраняться состояние редактирования');
   assert.equal(editState?.planId, planForEdit.id, 'Состояние редактирования должно помнить план');
-  assert.equal(editState?.messageId, 901, 'Состояние редактирования должно запоминать сообщение карточки');
+  assert.equal(
+    editState?.messageId,
+    planForEdit.cardMessageId,
+    'Состояние редактирования должно использовать сохранённый идентификатор карточки',
+  );
+  assert.equal(
+    editState?.chatId,
+    planForEdit.cardChatId ?? planForEdit.chatId,
+    'Состояние редактирования должно использовать чат публикации карточки',
+  );
 
   const editPromptStep = stepLog
     .slice(initialEditStepCount)
@@ -739,11 +809,22 @@ void (async () => {
     undefined,
     'После успешного редактирования состояние должно очищаться',
   );
-  assert.ok(editedMessages.length > 0, 'Редактирование должно обновлять карточку плана');
+  assert.ok(editedMessages.length > 0 || editedMarkups.length > 0, 'Редактирование должно обновлять карточку плана');
   const editedCard = editedMessages.at(-1);
-  assert.equal(editedCard?.chatId, planForEdit.chatId, 'Обновление карточки должно выполняться в исходном чате');
+  const editedTargetChat = editedCard?.chatId ?? editedMarkups.at(-1)?.chatId;
+  const editedTargetMessageId = editedCard?.messageId ?? editedMarkups.at(-1)?.messageId;
+  assert.equal(
+    editedTargetChat,
+    planForEdit.cardChatId ?? planForEdit.chatId,
+    'Обновление карточки должно выполняться в чате публикации плана',
+  );
+  assert.equal(
+    editedTargetMessageId,
+    planForEdit.cardMessageId,
+    'Обновление карточки должно использовать сохранённый идентификатор сообщения',
+  );
   assert.ok(
-    editedCard?.text.includes('Новый комментарий'),
+    (editedCard?.text ?? '').includes('Новый комментарий'),
     'Текст карточки после обновления должен содержать новый комментарий',
   );
 
@@ -762,6 +843,183 @@ void (async () => {
   );
 
   console.log('form command edit callback flow test: OK');
+
+  {
+    const { buildPlanSummary } = await import('../src/services/executorPlans/reminders');
+
+    const callbacksPreviousLatestPlan = latestPlan;
+
+    const cardRefreshPlan: ExecutorPlanRecord = {
+      id: 2025,
+      chatId: 222,
+      threadId: 303,
+      phone: '+77000000000',
+      nickname: '@card',
+      planChoice: '15',
+      startAt: new Date('2024-01-01T00:00:00Z'),
+      endsAt: new Date('2024-01-16T00:00:00Z'),
+      comment: 'Исходный комментарий',
+      status: 'active',
+      muted: false,
+      reminderIndex: 1,
+      reminderLastSent: undefined,
+      cardMessageId: 9876,
+      cardChatId: 222,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } satisfies ExecutorPlanRecord;
+
+    latestPlan = cardRefreshPlan;
+
+    const cardRefreshSession = {
+      ephemeralMessages: [],
+      isAuthenticated: false,
+      safeMode: false,
+      isDegraded: false,
+      awaitingPhone: false,
+      authSnapshot: {} as Record<string, unknown>,
+      executor: {} as Record<string, unknown>,
+      client: {} as Record<string, unknown>,
+      ui: { steps: {}, homeActions: [] },
+      moderationPlans: { threads: {}, edits: {} },
+      support: { status: 'idle' },
+      onboarding: { active: false },
+    } as unknown as BotContext['session'];
+
+    const cardCallbackAnswers: string[] = [];
+    const cardEditedMessages: Array<{ chatId: number; messageId: number; text: string; options: unknown }> = [];
+    const cardEditedMarkups: Array<{ chatId: number; messageId: number; markup: unknown }> = [];
+
+    const cardCtx = {
+      chat: { id: cardRefreshPlan.chatId, type: 'supergroup' },
+      session: cardRefreshSession,
+      auth: {} as Record<string, unknown>,
+      telegram: {
+        editMessageText: async (
+          chatId: number,
+          messageId: number,
+          _inlineMessageId: unknown,
+          text: string,
+          options: unknown,
+        ) => {
+          cardEditedMessages.push({ chatId, messageId, text, options });
+          return { message_id: messageId };
+        },
+        editMessageReplyMarkup: async (
+          chatId: number,
+          messageId: number,
+          _inlineMessageId: unknown,
+          replyMarkup: unknown,
+        ) => {
+          cardEditedMarkups.push({ chatId, messageId, markup: replyMarkup });
+          return { message_id: messageId };
+        },
+      },
+      answerCbQuery: async (text?: string) => {
+        cardCallbackAnswers.push(text ?? '');
+      },
+    } as unknown as BotContext;
+
+    const scheduledBeforeCallbacks = scheduledPlans.length;
+
+    await __testing.handleExtendCallback(cardCtx, cardRefreshPlan.id, 7);
+    assert.equal(
+      processedMutations.at(-1)?.type,
+      'extend',
+      'Продление из callback должно инициировать мутацию extend',
+    );
+    const extendSummary = cardEditedMessages.at(-1)?.text ?? '';
+    assert.equal(
+      extendSummary,
+      buildPlanSummary(latestPlan as ExecutorPlanRecord),
+      'После продления карточка должна обновляться актуальным резюме',
+    );
+    const extendTargetChat = cardEditedMessages.at(-1)?.chatId ?? cardEditedMarkups.at(-1)?.chatId;
+    const extendTargetMessageId =
+      cardEditedMessages.at(-1)?.messageId ?? cardEditedMarkups.at(-1)?.messageId;
+    assert.equal(
+      extendTargetChat,
+      cardRefreshPlan.cardChatId,
+      'Продление должно обновлять карточку в исходном чате',
+    );
+    assert.equal(
+      extendTargetMessageId,
+      cardRefreshPlan.cardMessageId,
+      'Продление должно использовать сохранённый идентификатор сообщения',
+    );
+    assert.ok(
+      cardCallbackAnswers.includes('План продлён'),
+      'Продление должно подтверждаться через answerCbQuery',
+    );
+    assert.equal(
+      scheduledPlans.length,
+      scheduledBeforeCallbacks + 1,
+      'Продление должно заново запланировать напоминание',
+    );
+
+    cardEditedMessages.length = 0;
+    cardEditedMarkups.length = 0;
+    cardCallbackAnswers.length = 0;
+
+    await __testing.handleStatusCallback(cardCtx, cardRefreshPlan.id, 'blocked');
+    assert.equal(
+      processedMutations.at(-1)?.type,
+      'set-status',
+      'Изменение статуса должно инициировать мутацию set-status',
+    );
+    const statusSummary = cardEditedMessages.at(-1)?.text ?? '';
+    assert.equal(
+      statusSummary,
+      buildPlanSummary(latestPlan as ExecutorPlanRecord),
+      'При изменении статуса карточка должна обновляться актуальным резюме',
+    );
+    assert.ok(
+      statusSummary.includes('заблокирован'),
+      'Резюме после блокировки должно содержать информацию о заблокированном статусе',
+    );
+    assert.ok(
+      cardCallbackAnswers.includes('Статус обновлён'),
+      'Изменение статуса должно подтверждаться пользователю',
+    );
+    assert.equal(
+      scheduledPlans.length,
+      scheduledBeforeCallbacks + 1,
+      'Блокировка не должна планировать новое напоминание',
+    );
+
+    cardEditedMessages.length = 0;
+    cardEditedMarkups.length = 0;
+
+    await __testing.handleToggleMuteCallback(cardCtx, cardRefreshPlan.id);
+    assert.equal(
+      processedMutations.at(-1)?.type,
+      'mute',
+      'Переключение уведомлений должно инициировать мутацию mute',
+    );
+    const muteSummary = cardEditedMessages.at(-1)?.text ?? '';
+    assert.equal(
+      muteSummary,
+      buildPlanSummary(latestPlan as ExecutorPlanRecord),
+      'Переключение уведомлений должно обновлять карточку актуальным резюме',
+    );
+    assert.ok(
+      muteSummary.includes('уведомления отключены'),
+      'Резюме должно отражать отключённые уведомления',
+    );
+    assert.ok(
+      cardCallbackAnswers.includes('Уведомления отключены'),
+      'Переключение уведомлений должно подтверждаться пользователю',
+    );
+    assert.equal(
+      scheduledPlans.length,
+      scheduledBeforeCallbacks + 1,
+      'Отключение уведомлений не должно планировать новое напоминание',
+    );
+
+    latestPlan = callbacksPreviousLatestPlan;
+
+    console.log('form command callback card refresh test: OK');
+  }
 
   const channelThreadId = 777;
   const channelThreadKey = __testing.getThreadKey(channelThreadId);
