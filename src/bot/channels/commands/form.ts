@@ -106,6 +106,7 @@ const MONTHS: Record<string, number> = {
 };
 
 const PLAN_VALUES: ExecutorPlanChoice[] = ['trial', '7', '15', '30'];
+const PLAN_CHOICES_PER_ROW = 2;
 const MS_IN_DAY = 24 * 60 * 60 * 1000;
 
 const CALLBACK_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -115,7 +116,7 @@ const SUMMARY_CONFIRM_ACTION = `${WIZARD_ACTION_PREFIX}:confirm`;
 const SUMMARY_CANCEL_ACTION = `${WIZARD_ACTION_PREFIX}:cancel`;
 
 const PLAN_SELECT_CALLBACK_PATTERN = new RegExp(
-  `^${PLAN_SELECT_ACTION}:(trial|7|15|30)$`,
+  `^${PLAN_SELECT_ACTION}:(${PLAN_VALUES.join('|')})$`,
 );
 const SUMMARY_CONFIRM_CALLBACK_PATTERN = new RegExp(
   `^${SUMMARY_CONFIRM_ACTION}$`,
@@ -366,15 +367,19 @@ const formatDateTime = (value: Date): string =>
 
 const buildPlanChoiceKeyboard = (): ReturnType<typeof buildInlineKeyboard> => {
   const secret = config.bot.callbackSignSecret ?? config.bot.token;
-  const rows = [
-    PLAN_VALUES.map((choice) => ({
-      label: PLAN_CHOICE_LABELS[choice],
-      action: wrapCallbackData(`${PLAN_SELECT_ACTION}:${choice}`, {
-        secret,
-        ttlSeconds: CALLBACK_TTL_SECONDS,
-      }),
-    })),
-  ];
+  const rows: Array<Array<{ label: string; action: string }>> = [];
+  for (let index = 0; index < PLAN_VALUES.length; index += PLAN_CHOICES_PER_ROW) {
+    const rowValues = PLAN_VALUES.slice(index, index + PLAN_CHOICES_PER_ROW);
+    rows.push(
+      rowValues.map((choice) => ({
+        label: PLAN_CHOICE_LABELS[choice],
+        action: wrapCallbackData(`${PLAN_SELECT_ACTION}:${choice}`, {
+          secret,
+          ttlSeconds: CALLBACK_TTL_SECONDS,
+        }),
+      })),
+    );
+  }
 
   return buildInlineKeyboard(rows);
 };
