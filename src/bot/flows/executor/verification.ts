@@ -3,6 +3,7 @@ import { Markup, Telegraf } from 'telegraf';
 import type { BotContext, ExecutorRole } from '../../types';
 import { getExecutorRoleCopy } from '../../copy';
 import { presentRolePick } from '../../commands/start';
+import { config } from '../../../config';
 import {
   EXECUTOR_MENU_ACTION,
   EXECUTOR_VERIFICATION_ACTION,
@@ -10,8 +11,8 @@ import {
 } from './menu';
 import { ui, type UiStepResult } from '../../ui';
 
-const SUPPORT_USERNAME = 'seven_support';
-const SUPPORT_LINK = `https://t.me/${SUPPORT_USERNAME}`;
+const SUPPORT_MENTION = config.support.mention;
+const SUPPORT_LINK = config.support.url;
 
 const ROLE_DOCUMENT_REQUIREMENTS: Record<ExecutorRole, string[]> = {
   courier: [
@@ -38,7 +39,7 @@ const buildVerificationInfoText = (role: ExecutorRole): string => {
   return [
     '🛡️ Проверка документов',
     '',
-    `Чтобы подключиться к заказам ${copy.genitive}, отправьте документы в личные сообщения @${SUPPORT_USERNAME}.`,
+    `Чтобы подключиться к заказам ${copy.genitive}, отправьте документы в личные сообщения ${SUPPORT_MENTION}.`,
     '',
     'Что подготовить:',
     ...requirements,

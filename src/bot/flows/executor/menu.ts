@@ -11,6 +11,7 @@ import {
 import { getExecutorRoleCopy } from '../../copy';
 import { ui } from '../../ui';
 import { CITY_LABEL } from '../../../domain/cities';
+import { config } from '../../../config';
 import { CITY_ACTION_PATTERN, ensureCitySelected } from '../common/citySelect';
 import { presentRolePick } from '../../commands/start';
 import { startExecutorVerification } from './verification';
@@ -136,8 +137,8 @@ export const requireExecutorRole = (state: ExecutorFlowState): ExecutorRole => {
   throw new Error('Executor role is not set');
 };
 
-const SUPPORT_USERNAME = 'seven_support';
-const SUPPORT_LINK = `https://t.me/${SUPPORT_USERNAME}`;
+const SUPPORT_MENTION = config.support.mention;
+const SUPPORT_LINK = config.support.url;
 
 const buildMenuKeyboard = (): InlineKeyboardMarkup =>
   Markup.inlineKeyboard([
@@ -158,7 +159,7 @@ const buildMenuText = (state: ExecutorFlowState, city: string): string => {
     '📸 Документы: отправьте фото удостоверения по кнопке ниже — команда проверит их и даст обратную связь.',
     '💳 Подписка и бесплатный пробный период: выберите план по кнопке ниже — там будут инструкции и ссылка на канал.',
     '',
-    `Нужна помощь? Поддержка ответит в @${SUPPORT_USERNAME}.`,
+    `Нужна помощь? Поддержка ответит в ${SUPPORT_MENTION}.`,
     'Используйте кнопки ниже, чтобы открыть подсказки или обновить информацию.',
   ];
 

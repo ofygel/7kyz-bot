@@ -1,8 +1,7 @@
 import { Telegraf } from 'telegraf';
 
 import type { BotContext } from '../../types';
-
-const SUPPORT_USERNAME = 'seven_support';
+import { config } from '../../../config';
 
 export const processOrdersRequest = async (ctx: BotContext): Promise<void> => {
   if (ctx.chat?.type !== 'private') {
@@ -10,7 +9,7 @@ export const processOrdersRequest = async (ctx: BotContext): Promise<void> => {
   }
 
   await ctx.reply(
-    `Чтобы получить заказы, напишите @${SUPPORT_USERNAME} — поддержка подскажет, как подключиться к каналу.`,
+    `Чтобы получить заказы, напишите ${config.support.mention} — поддержка подскажет, как подключиться к каналу.`,
   );
 };
 

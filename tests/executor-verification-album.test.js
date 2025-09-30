@@ -14,6 +14,8 @@ ensureEnv('DATABASE_URL', 'postgres://user:pass@localhost:5432/db');
 ensureEnv('KASPI_CARD', '0000 0000 0000 0000');
 ensureEnv('KASPI_NAME', 'Test User');
 ensureEnv('KASPI_PHONE', '+70000000000');
+ensureEnv('SUPPORT_USERNAME', 'test_support');
+ensureEnv('SUPPORT_URL', 'https://t.me/test_support');
 ensureEnv('WEBHOOK_DOMAIN', 'example.com');
 ensureEnv('WEBHOOK_SECRET', 'secret');
 
@@ -121,5 +123,17 @@ test('handleIncomingPhoto processes album photos once', { concurrency: false }, 
   assert.ok(
     progressMessages[0].text.includes('Фото 3/3 получено'),
     'progress message should reflect three uploaded photos',
+  );
+});
+
+test('verification info text mentions support contact from config', () => {
+  const { __private__ } = require('../src/bot/flows/executor/verification');
+  const { config } = require('../src/config');
+
+  const text = __private__.buildVerificationInfoText('courier');
+
+  assert.ok(
+    text.includes(config.support.mention),
+    'verification info should include support mention from config',
   );
 });

@@ -15,6 +15,8 @@ ensureEnv('DATABASE_URL', 'postgres://user:pass@localhost:5432/db');
 ensureEnv('KASPI_CARD', '0000 0000 0000 0000');
 ensureEnv('KASPI_NAME', 'Test User');
 ensureEnv('KASPI_PHONE', '+70000000000');
+ensureEnv('SUPPORT_USERNAME', 'test_support');
+ensureEnv('SUPPORT_URL', 'https://t.me/test_support');
 ensureEnv('WEBHOOK_DOMAIN', 'example.com');
 ensureEnv('WEBHOOK_SECRET', 'secret');
 
