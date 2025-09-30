@@ -49,6 +49,13 @@ export const buildPlanSummary = (plan: ExecutorPlanRecord): string => {
   lines.push(`Окончание: ${formatDateTime(plan.endsAt)}`);
   lines.push(`Статус: ${formatPlanStatus(plan)}${plan.muted ? ' (уведомления отключены)' : ''}`);
   lines.push(`Текущий этап напоминаний: ${REMINDER_STAGE_LABELS[plan.reminderIndex] ?? 'завершён'}`);
+  const nextReminderOffset = REMINDER_OFFSETS_HOURS[plan.reminderIndex];
+  if (nextReminderOffset === undefined) {
+    lines.push('Ближайшее напоминание: выполнены все');
+  } else {
+    const nextReminderAt = new Date(plan.endsAt.getTime() + nextReminderOffset * 60 * 60 * 1000);
+    lines.push(`Ближайшее напоминание: ${formatDateTime(nextReminderAt)}`);
+  }
   if (plan.comment) {
     lines.push('', `Комментарий: ${plan.comment}`);
   }

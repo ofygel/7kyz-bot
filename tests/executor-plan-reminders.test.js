@@ -19,7 +19,14 @@ ensureEnv('SUPPORT_URL', 'https://t.me/test_support');
 ensureEnv('WEBHOOK_DOMAIN', 'example.com');
 ensureEnv('WEBHOOK_SECRET', 'secret');
 
-const { REMINDER_OFFSETS_HOURS } = require('../src/services/executorPlans/reminders');
+const { config } = require('../src/config');
+const {
+  REMINDER_OFFSETS_HOURS,
+  REMINDER_STAGE_LABELS,
+  buildPlanSummary,
+  buildReminderMessage,
+  formatPlanChoice,
+} = require('../src/services/executorPlans/reminders');
 const { __testing } = require('../src/jobs/executorPlanReminders');
 
 const createPlan = (overrides = {}) => ({
@@ -35,6 +42,67 @@ const createPlan = (overrides = {}) => ({
   createdAt: new Date('2023-12-31T00:00:00Z'),
   updatedAt: new Date('2023-12-31T00:00:00Z'),
   ...overrides,
+});
+
+const formatDateTime = (value) =>
+  new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: config.timezone,
+  }).format(value);
+
+test('buildPlanSummary включает дату ближайшего напоминания', () => {
+  const reminderIndex = 0;
+  const plan = createPlan({
+    reminderIndex,
+    nickname: '@executor',
+    comment: 'Комментарий',
+  });
+
+  const summary = buildPlanSummary(plan);
+  const lines = summary.split('\n');
+  const reminderLine = lines.find((line) => line.startsWith('Ближайшее напоминание: '));
+
+  assert.ok(reminderLine, 'Резюме плана должно содержать строку о ближайшем напоминании');
+
+  const expectedDueAt = new Date(
+    plan.endsAt.getTime() + REMINDER_OFFSETS_HOURS[reminderIndex] * 60 * 60 * 1000,
+  );
+  assert.equal(
+    reminderLine,
+    `Ближайшее напоминание: ${formatDateTime(expectedDueAt)}`,
+    'В резюме должна выводиться дата ближайшего напоминания',
+  );
+});
+
+test('buildPlanSummary сообщает об окончании напоминаний', () => {
+  const plan = createPlan({ reminderIndex: REMINDER_OFFSETS_HOURS.length });
+
+  const summary = buildPlanSummary(plan);
+
+  assert.ok(
+    summary.includes('Ближайшее напоминание: выполнены все'),
+    'Резюме должно указывать на завершение всех напоминаний',
+  );
+});
+
+test('buildReminderMessage формирует текст напоминания с данными плана', () => {
+  const reminderIndex = 1;
+  const plan = createPlan({
+    reminderIndex,
+    nickname: '@executor',
+    comment: 'Комментарий',
+  });
+
+  const message = buildReminderMessage(plan, reminderIndex);
+
+  assert.ok(message.startsWith(`⏰ Напоминание ${REMINDER_STAGE_LABELS[reminderIndex]}`));
+  assert.ok(message.includes(`Телефон: ${plan.phone}`));
+  assert.ok(message.includes(`Ник/ID: ${plan.nickname}`));
+  assert.ok(message.includes(`План: ${formatPlanChoice(plan)}`));
+  assert.ok(message.includes(`Старт: ${formatDateTime(plan.startAt)}`));
+  assert.ok(message.includes(`Окончание: ${formatDateTime(plan.endsAt)}`));
+  assert.ok(message.includes('Комментарий: Комментарий'));
 });
 
 test('marks executor plan as completed after final reminder', async (t) => {
