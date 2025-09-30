@@ -145,3 +145,194 @@ test('CRM wizard posts every step inside the originating thread', async () => {
     assert.equal(message.chatId, chatId);
   }
 });
+
+test(
+  'handleSummaryDecision stores the comment when creating a plan',
+  { concurrency: false },
+  async () => {
+    const dbClientPath = require.resolve('../src/db/client');
+    const queueModulePath = require.resolve('../src/infra/executorPlanQueue');
+    const remindersModulePath = require.resolve('../src/jobs/executorPlanReminders');
+    const uiModulePath = require.resolve('../src/bot/ui.ts');
+    const keyboardModulePath = require.resolve('../src/bot/ui/executorPlans');
+    const planSummaryModulePath = require.resolve('../src/services/executorPlans/reminders');
+    const executorPlansModulePath = require.resolve('../src/db/executorPlans');
+    const formModulePath = require.resolve(FORM_COMMANDS_MODULE_PATH);
+
+    const originalModules = new Map();
+    const stubModule = (path, exports) => {
+      originalModules.set(path, require.cache[path]);
+      require.cache[path] = {
+        id: path,
+        filename: path,
+        loaded: true,
+        exports,
+      };
+    };
+
+    const restoreModules = () => {
+      for (const [path, original] of originalModules.entries()) {
+        if (original) {
+          require.cache[path] = original;
+        } else {
+          delete require.cache[path];
+        }
+      }
+    };
+
+    const queryCalls = [];
+    const insertedRows = [];
+    const stubPool = {
+      async query(sqlText, params = []) {
+        const sql = typeof sqlText === 'string' ? sqlText : String(sqlText);
+        queryCalls.push({ sql, params });
+
+        if (/INSERT\s+INTO\s+executor_plans/i.test(sql)) {
+          const row = {
+            id: 101,
+            chat_id: params[0],
+            thread_id: params[1],
+            phone: params[2],
+            nickname: params[3],
+            plan_choice: params[4],
+            start_at: params[5],
+            ends_at: params[6],
+            comment: params[7],
+            status: 'active',
+            muted: false,
+            reminder_index: 0,
+            reminder_last_sent: null,
+            card_message_id: null,
+            card_chat_id: null,
+            created_at: params[8],
+            updated_at: params[8],
+          };
+          insertedRows.push(row);
+          return { rows: [row] };
+        }
+
+        if (/SELECT\s+\*/i.test(sql) && /FROM\s+executor_plans/i.test(sql)) {
+          return { rows: [] };
+        }
+
+        throw new Error(`Unexpected SQL in test stub: ${sql}`);
+      },
+    };
+
+    const reminderCalls = [];
+    const mutationLog = [];
+    const uiSteps = [];
+    const uiClearCalls = [];
+
+    stubModule(dbClientPath, { pool: stubPool, default: stubPool, __esModule: true });
+    stubModule(remindersModulePath, {
+      scheduleExecutorPlanReminder: async (plan) => {
+        reminderCalls.push(plan);
+      },
+      cancelExecutorPlanReminders: async () => {},
+      ensureExecutorPlanReminderQueue: () => true,
+      notifyExecutorPlanReminderQueueUnavailable: async () => {},
+      __esModule: true,
+    });
+    stubModule(queueModulePath, {
+      enqueueExecutorPlanMutation: async () => {},
+      flushExecutorPlanMutations: async () => {},
+      processExecutorPlanMutation: async (mutation) => {
+        mutationLog.push(mutation);
+        if (mutation.type === 'create') {
+          const { createExecutorPlan } = require('../src/db/executorPlans');
+          const plan = await createExecutorPlan(mutation.payload);
+          return { type: 'created', plan };
+        }
+        return null;
+      },
+      __esModule: true,
+    });
+    stubModule(uiModulePath, {
+      ui: {
+        step: async (_ctx, options) => {
+          uiSteps.push(options);
+          return { messageId: uiSteps.length, sent: true };
+        },
+        clear: async (_ctx, options) => {
+          uiClearCalls.push(options);
+        },
+      },
+      __esModule: true,
+    });
+    stubModule(keyboardModulePath, {
+      buildExecutorPlanActionKeyboard: () => ({ inline_keyboard: [] }),
+      __esModule: true,
+    });
+    stubModule(planSummaryModulePath, {
+      buildPlanSummary: () => 'План сохранён',
+      __esModule: true,
+    });
+
+    const originalExecutorPlansModule = require.cache[executorPlansModulePath];
+    const originalFormModule = require.cache[formModulePath];
+    delete require.cache[executorPlansModulePath];
+    delete require.cache[formModulePath];
+
+    try {
+      const commandModule = require(FORM_COMMANDS_MODULE_PATH);
+      const { handleSummaryDecision, getThreadKey } = commandModule.__testing;
+
+      const chatId = 555;
+      const threadId = 42;
+      const threadKey = getThreadKey(threadId);
+      const ctx = {
+        chat: { id: chatId },
+        session: {
+          moderationPlans: {
+            threads: {
+              [threadKey]: {
+                step: 'summary',
+                threadId,
+                phone: '+77001234567',
+                planChoice: '7',
+                comment: 'Комментарий теста',
+                startAt: new Date('2024-02-01T00:00:00Z'),
+              },
+            },
+            edits: {},
+          },
+        },
+        telegram: {
+          sendMessage: async () => ({}),
+        },
+        reply: async () => {},
+        answerCbQuery: async () => {},
+      };
+
+      await handleSummaryDecision(ctx, threadKey, 'confirm');
+
+      assert.equal(mutationLog.length, 1);
+      assert.equal(mutationLog[0].type, 'create');
+      assert.equal(insertedRows.length, 1);
+      assert.equal(reminderCalls.length, 1);
+
+      const insertCall = queryCalls.find((entry) => /INSERT\s+INTO\s+executor_plans/i.test(entry.sql));
+      assert.ok(insertCall, 'Expected INSERT query to be executed');
+      assert.equal(insertCall.params.length, 9);
+      assert.equal(insertCall.params[7], 'Комментарий теста');
+
+      const insertedRow = insertedRows[0];
+      assert.equal(insertedRow.comment, 'Комментарий теста');
+    } finally {
+      if (originalExecutorPlansModule) {
+        require.cache[executorPlansModulePath] = originalExecutorPlansModule;
+      } else {
+        delete require.cache[executorPlansModulePath];
+      }
+
+      if (originalFormModule) {
+        require.cache[formModulePath] = originalFormModule;
+      } else {
+        delete require.cache[formModulePath];
+      }
+
+      restoreModules();
+    }
+  },
+);
