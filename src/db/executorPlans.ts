@@ -157,7 +157,7 @@ export const createExecutorPlan = async (
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', false, 0, $8, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', false, 0, $9, $9)
       RETURNING *
     `,
     [
