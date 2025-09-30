@@ -144,6 +144,27 @@ export const wrapCallbackData = (raw: string, options: WrapCallbackOptions): str
     options.onResult?.(outcome);
   };
 
+  const createSurrogateToken = (
+    data: string,
+    bound: boolean,
+    reason: WrapCallbackOutcome['reason'],
+  ): string => {
+    const surrogateToken = createShortCallbackId(CALLBACK_SURROGATE_TOKEN_PREFIX);
+    const payload: CallbackSurrogatePayload = { raw, data };
+
+    persistSurrogateToken(surrogateToken, payload, expiresAtDate);
+
+    report({
+      status: 'wrapped',
+      bound,
+      length: surrogateToken.length,
+      rawLength: raw.length,
+      reason,
+    });
+
+    return surrogateToken;
+  };
+
   const primary = attemptWrap(includeBinding);
   if (primary.data.length <= MAX_CALLBACK_DATA_LENGTH) {
     report({
@@ -155,19 +176,10 @@ export const wrapCallbackData = (raw: string, options: WrapCallbackOptions): str
     return primary.data;
   }
 
-  let fallback: ReturnType<typeof attemptWrap> | undefined;
   if (includeBinding) {
-    fallback = attemptWrap(false);
-    if (fallback.data.length <= MAX_CALLBACK_DATA_LENGTH) {
-      report({
-        status: 'wrapped',
-        bound: false,
-        length: fallback.data.length,
-        rawLength: raw.length,
-        reason: 'oversize',
-      });
-      return fallback.data;
-    }
+    const reason: WrapCallbackOutcome['reason'] =
+      raw.length > MAX_CALLBACK_DATA_LENGTH ? 'raw-too-long' : 'oversize';
+    return createSurrogateToken(primary.data, true, reason);
   }
 
   if (raw.length <= MAX_CALLBACK_DATA_LENGTH) {
@@ -181,23 +193,7 @@ export const wrapCallbackData = (raw: string, options: WrapCallbackOptions): str
     return raw;
   }
 
-  const surrogateToken = createShortCallbackId(CALLBACK_SURROGATE_TOKEN_PREFIX);
-  const payload: CallbackSurrogatePayload = {
-    raw,
-    data: includeBinding ? primary.data : fallback?.data ?? primary.data,
-  };
-
-  persistSurrogateToken(surrogateToken, payload, expiresAtDate);
-
-  report({
-    status: 'wrapped',
-    bound: includeBinding,
-    length: surrogateToken.length,
-    rawLength: raw.length,
-    reason: 'raw-too-long',
-  });
-
-  return surrogateToken;
+  return createSurrogateToken(primary.data, false, 'raw-too-long');
 };
 
 export type DecodeResult =

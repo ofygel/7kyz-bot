@@ -51,7 +51,9 @@ void (async () => {
     tryDecodeCallbackData,
     CALLBACK_SURROGATE_TOKEN_PREFIX,
     CALLBACK_SURROGATE_ACTION,
+    bindInlineKeyboardToUser,
   } = await import('../src/bot/services/callbackTokens');
+  const { logger } = await import('../src/config');
   const { ROLE_PICK_EXECUTOR_ACTION } = await import('../src/bot/flows/executor/roleSelectionConstants');
 
   const secret = 'test-secret';
@@ -59,7 +61,7 @@ void (async () => {
   const wrapped = wrapCallbackData(ROLE_PICK_EXECUTOR_ACTION, {
     secret,
     userId: 987654321,
-    keyboardNonce: 'keyboard-nonce',
+    keyboardNonce: 'n',
     bindToUser: true,
     ttlSeconds: 300,
   });
@@ -127,6 +129,69 @@ void (async () => {
     oversizeOutcome && oversizeOutcome.status === 'wrapped' && oversizeOutcome.reason === 'raw-too-long',
     'Oversized callback data should be reported as wrapped via surrogate indirection',
   );
+
+  callbackStore.clear();
+
+  const warnings: unknown[][] = [];
+  const originalWarn = logger.warn;
+
+  const keyboard: import('telegraf/typings/core/types/typegram').InlineKeyboardMarkup = {
+    inline_keyboard: [[{ text: 'Orders', callback_data: 'client:orders:list' }]],
+  };
+
+  let boundKeyboard: import('telegraf/typings/core/types/typegram').InlineKeyboardMarkup | undefined;
+  try {
+    (logger as unknown as { warn: (...args: unknown[]) => void }).warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    const ctx = {
+      auth: {
+        user: {
+          telegramId: 123_456_789_012,
+          keyboardNonce: 'nonce-value',
+        },
+      },
+    } satisfies Partial<import('../src/bot/types').BotContext>;
+
+    boundKeyboard = bindInlineKeyboardToUser(ctx as import('../src/bot/types').BotContext, keyboard);
+  } finally {
+    (logger as unknown as { warn: typeof originalWarn }).warn = originalWarn;
+  }
+
+  assert.ok(boundKeyboard, 'Binding inline keyboard should return a keyboard instance');
+  assert.notEqual(boundKeyboard, keyboard, 'Binding should produce a new keyboard reference when changes apply');
+
+  const boundButton = boundKeyboard!.inline_keyboard?.[0]?.[0];
+  assert.ok(boundButton, 'Bound keyboard should preserve the original button');
+  assert.ok(boundButton!.callback_data, 'Bound button must include callback data');
+  assert.ok(
+    boundButton!.callback_data!.startsWith(`${CALLBACK_SURROGATE_TOKEN_PREFIX}:`),
+    'Oversized bound callbacks should be replaced with surrogate tokens',
+  );
+
+  const storedBoundRecord = callbackStore.get(boundButton!.callback_data!);
+  assert.ok(storedBoundRecord, 'Surrogate payload for bound callback should be persisted');
+  assert.equal(
+    storedBoundRecord?.action,
+    CALLBACK_SURROGATE_ACTION,
+    'Stored surrogate should be associated with the surrogate action key',
+  );
+
+  const storedBoundPayload = storedBoundRecord?.payload as { raw: string; data: string } | undefined;
+  assert.ok(storedBoundPayload, 'Surrogate payload should include raw and wrapped data');
+  assert.equal(
+    storedBoundPayload?.raw,
+    'client:orders:list',
+    'Original callback payload must be preserved when using surrogate binding',
+  );
+
+  const decodedBound = tryDecodeCallbackData(storedBoundPayload!.data);
+  assert.ok(decodedBound.ok, 'Persisted surrogate payload should decode successfully');
+  assert.equal(decodedBound.wrapped.user, BigInt(123_456_789_012).toString(36));
+  assert.equal(decodedBound.wrapped.nonce, 'noncevalue');
+
+  assert.deepEqual(warnings, [], 'Binding callbacks via surrogate should not emit warnings');
 
   console.log('callback tokens surrogate guard test: OK');
 })();
