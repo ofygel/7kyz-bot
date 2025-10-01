@@ -348,10 +348,7 @@ export const bindInlineKeyboardToUser = (
     return keyboard;
   }
 
-  const secret = config.bot.hmacSecret ?? config.bot.token;
-  if (!secret) {
-    return keyboard;
-  }
+  const secret = config.bot.hmacSecret;
 
   const keyboardNonce = resolveKeyboardNonce(user);
   if (!keyboardNonce) {

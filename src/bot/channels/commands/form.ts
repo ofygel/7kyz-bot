@@ -389,7 +389,7 @@ const formatDateTime = (value: Date): string =>
   }).format(value);
 
 const buildPlanChoiceKeyboard = (): ReturnType<typeof buildInlineKeyboard> => {
-  const secret = config.bot.hmacSecret ?? config.bot.token;
+  const secret = config.bot.hmacSecret;
   const rows: Array<Array<{ label: string; action: string }>> = [];
   for (let index = 0; index < PLAN_VALUES.length; index += PLAN_CHOICES_PER_ROW) {
     const rowValues = PLAN_VALUES.slice(index, index + PLAN_CHOICES_PER_ROW);
@@ -651,7 +651,7 @@ const renderSummaryStep = async (
   lines.push(`Комментарий: ${state.comment ?? '—'}`);
   lines.push('', 'Нажмите «Сохранить», чтобы создать запись, или «Отмена», чтобы сбросить форму.');
 
-  const secret = config.bot.hmacSecret ?? config.bot.token;
+  const secret = config.bot.hmacSecret;
   const keyboard = buildConfirmCancelKeyboard(
     wrapCallbackData(SUMMARY_CONFIRM_ACTION, {
       secret,
