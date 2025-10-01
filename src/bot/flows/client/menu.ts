@@ -206,9 +206,14 @@ export const showMenu = async (ctx: BotContext, prompt?: string): Promise<void> 
 
   uiState.pendingCityAction = undefined;
   const cityLabel = CITY_LABEL[city];
-  const trialExpiresAt = ctx.auth.user.trialExpiresAt;
-  const trialDaysLeft = trialExpiresAt
-    ? Math.max(0, Math.ceil((trialExpiresAt.getTime() - Date.now()) / 86400000))
+  const trialPlan =
+    ctx.auth.user.activeExecutorPlan?.planChoice === 'trial'
+      && ctx.auth.user.activeExecutorPlan.status === 'active'
+      ? ctx.auth.user.activeExecutorPlan
+      : undefined;
+  const trialEndsAt = trialPlan?.endsAt;
+  const trialDaysLeft = trialEndsAt
+    ? Math.max(0, Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000))
     : undefined;
   const baseText = prompt ?? clientMenuText();
   const miniStatus = copy.clientMiniStatus(cityLabel, trialDaysLeft);
