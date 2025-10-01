@@ -335,7 +335,7 @@ const activateVerificationTrial = async (
 
   if (!binding) {
     inviteAvailable = false;
-    const fallbackChatId = config.subscriptions.payment.driversChannelId;
+    const fallbackChatId = config.subscriptions.payment.ordersChannelId;
 
     if (!fallbackChatId) {
       logger.warn(
@@ -358,7 +358,7 @@ const activateVerificationTrial = async (
       lastName: application.applicant.lastName ?? undefined,
       phone: application.applicant.phone ?? undefined,
       executorKind: application.role,
-      chatId: binding?.chatId ?? config.subscriptions.payment.driversChannelId,
+      chatId: binding?.chatId ?? config.subscriptions.payment.ordersChannelId,
       trialDays: DEFAULT_VERIFICATION_TRIAL_DAYS,
       currency: config.subscriptions.prices.currency,
     });

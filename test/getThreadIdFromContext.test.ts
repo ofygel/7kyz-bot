@@ -12,7 +12,7 @@ process.env.SUPPORT_USERNAME = process.env.SUPPORT_USERNAME ?? 'test_support';
 process.env.SUPPORT_URL = process.env.SUPPORT_URL ?? 'https://t.me/test_support';
 process.env.WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN ?? 'example.com';
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'secret';
-process.env.CALLBACK_SIGN_SECRET = process.env.CALLBACK_SIGN_SECRET ?? 'test-secret';
+process.env.HMAC_SECRET = process.env.HMAC_SECRET ?? 'test-secret';
 
 void (async () => {
   const { __testing } = await import('../src/bot/channels/commands/form');

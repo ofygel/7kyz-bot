@@ -12,17 +12,21 @@ const normaliseDurationDays = (value: number): number => {
 export const getTrialPlanDurationDays = (): number =>
   normaliseDurationDays(config.subscriptions.trialDays);
 
+const isPaidPlanChoice = (choice: ExecutorPlanChoice): choice is '7' | '15' | '30' =>
+  choice !== 'trial';
+
+const getPaidPlanDurationDays = (choice: '7' | '15' | '30'): number =>
+  normaliseDurationDays(config.subscriptions.planDurations[choice]);
+
 export const getPlanChoiceDurationDays = (choice: ExecutorPlanChoice): number => {
   switch (choice) {
     case 'trial':
       return getTrialPlanDurationDays();
-    case '7':
-      return 7;
-    case '15':
-      return 15;
-    case '30':
-      return 30;
     default:
+      if (isPaidPlanChoice(choice)) {
+        return getPaidPlanDurationDays(choice);
+      }
+
       return 7;
   }
 };
@@ -34,11 +38,11 @@ export const getPlanChoiceLabel = (choice: ExecutorPlanChoice): string => {
       return `Пробный план (${days} дн.)`;
     }
     case '7':
-      return 'План на 7 дней';
     case '15':
-      return 'План на 15 дней';
-    case '30':
-      return 'План на 30 дней';
+    case '30': {
+      const days = getPlanChoiceDurationDays(choice);
+      return `План на ${days} дней`;
+    }
     default:
       return `План ${choice} дней`;
   }

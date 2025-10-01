@@ -17,7 +17,7 @@ import {
 } from '../services/callbackTokens';
 import { copy } from '../copy';
 
-const resolveSecret = (): string => config.bot.callbackSignSecret ?? config.bot.token;
+const resolveSecret = (): string => config.bot.hmacSecret ?? config.bot.token;
 
 const handleInvalidCallback = async (ctx: BotContext): Promise<void> => {
   if (typeof ctx.answerCbQuery === 'function') {

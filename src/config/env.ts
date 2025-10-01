@@ -167,6 +167,101 @@ const parseOptionalChatId = (envKey: string): number | undefined => {
   return parsed;
 };
 
+const PLAN_DURATION_KEYS = ['7', '15', '30'] as const;
+type PlanDurationKey = (typeof PLAN_DURATION_KEYS)[number];
+
+const DEFAULT_PLAN_DURATIONS: Record<PlanDurationKey, number> = {
+  '7': 7,
+  '15': 15,
+  '30': 30,
+};
+
+const parsePlanDurationValue = (key: string, value: unknown): number => {
+  let numeric: number | null = null;
+
+  if (typeof value === 'number') {
+    numeric = value;
+  } else if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      throw new Error(`PLAN_DURATIONS value for ${key} cannot be empty`);
+    }
+
+    numeric = Number.parseFloat(trimmed);
+  }
+
+  if (!Number.isFinite(numeric) || numeric === null) {
+    throw new Error(`PLAN_DURATIONS value for ${key} must be a finite number`);
+  }
+
+  if (numeric <= 0) {
+    throw new Error(`PLAN_DURATIONS value for ${key} must be greater than zero`);
+  }
+
+  return Math.round(numeric);
+};
+
+const parsePlanDurations = (): Record<PlanDurationKey, number> => {
+  const raw = getOptionalString('PLAN_DURATIONS');
+  if (!raw) {
+    return { ...DEFAULT_PLAN_DURATIONS };
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ...DEFAULT_PLAN_DURATIONS };
+  }
+
+  const overrides: Partial<Record<PlanDurationKey, number>> = {};
+  const applyEntry = (key: string, value: unknown) => {
+    const candidate = key.trim();
+    if (!PLAN_DURATION_KEYS.includes(candidate as PlanDurationKey)) {
+      throw new Error(`Unsupported plan key in PLAN_DURATIONS: ${key}`);
+    }
+
+    overrides[candidate as PlanDurationKey] = parsePlanDurationValue(candidate, value);
+  };
+
+  if (trimmed.startsWith('{')) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (error) {
+      throw new Error('PLAN_DURATIONS must be valid JSON or a comma-separated list');
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('PLAN_DURATIONS JSON payload must be an object');
+    }
+
+    for (const [key, value] of Object.entries(parsed)) {
+      applyEntry(key, value);
+    }
+  } else {
+    const entries = trimmed
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+
+    if (entries.length === 0) {
+      return { ...DEFAULT_PLAN_DURATIONS };
+    }
+
+    for (const entry of entries) {
+      const separatorIndex = entry.search(/[:=]/);
+      if (separatorIndex === -1) {
+        throw new Error('PLAN_DURATIONS entries must use key:value pairs');
+      }
+
+      const key = entry.slice(0, separatorIndex);
+      const value = entry.slice(separatorIndex + 1);
+      applyEntry(key, value);
+    }
+  }
+
+  return { ...DEFAULT_PLAN_DURATIONS, ...overrides };
+};
+
 const parsePositiveInt = (envKey: string, defaultValue: number): number => {
   const raw = getTrimmedEnv(envKey);
 
@@ -276,7 +371,7 @@ export interface AppConfig {
   logRateLimit: number;
   bot: {
     token: string;
-    callbackSignSecret?: string;
+    hmacSecret?: string;
     callbackTtlSeconds: number;
   };
   features: {
@@ -311,6 +406,7 @@ export interface AppConfig {
   };
   channels: {
     bindVerifyChannelId?: number;
+    ordersChannelId?: number;
   };
   city: {
     default?: string;
@@ -329,6 +425,7 @@ export interface AppConfig {
   subscriptions: {
     warnHoursBefore: number;
     trialDays: number;
+    planDurations: Record<PlanDurationKey, number>;
     prices: {
       sevenDays: number;
       fifteenDays: number;
@@ -341,7 +438,7 @@ export interface AppConfig {
         name: string;
         phone: string;
       };
-      driversChannelId?: number;
+      ordersChannelId?: number;
       driversChannelInvite?: string;
     };
   };
@@ -351,6 +448,8 @@ export interface AppConfig {
 export const loadConfig = (): AppConfig => {
   const redisUrl = getOptionalString('REDIS_URL');
   const sessionCachePrefix = getOptionalString('SESSION_CACHE_PREFIX') ?? 'session:';
+  const planDurations = parsePlanDurations();
+  const ordersChannelId = parseOptionalChatId('ORDERS_CHANNEL_ID');
 
   const supportUsernameRaw = getRequiredString('SUPPORT_USERNAME');
   const supportUsername = supportUsernameRaw.startsWith('@')
@@ -367,7 +466,7 @@ export const loadConfig = (): AppConfig => {
     logRateLimit: 50,
     bot: {
       token: process.env.BOT_TOKEN as string,
-      callbackSignSecret: getOptionalString('CALLBACK_SIGN_SECRET'),
+      hmacSecret: getOptionalString('HMAC_SECRET'),
       callbackTtlSeconds: parsePositiveInt('CALLBACK_TTL_SECONDS', 600),
     },
     features: {
@@ -407,6 +506,7 @@ export const loadConfig = (): AppConfig => {
     },
     channels: {
       bindVerifyChannelId: parseOptionalChatId('BIND_VERIFY_CHANNEL_ID'),
+      ordersChannelId,
     },
     city: {
       default: getOptionalString('CITY_DEFAULT'),
@@ -424,7 +524,8 @@ export const loadConfig = (): AppConfig => {
     tariff: parseGeneralTariff(),
     subscriptions: {
       warnHoursBefore: parseWarnHours(process.env.SUB_WARN_HOURS_BEFORE),
-      trialDays: parsePositiveNumber('SUB_TRIAL_DAYS', 2),
+      trialDays: parsePositiveNumber('TRIAL_DAYS', 2),
+      planDurations,
       prices: parseSubscriptionPrices(),
       payment: {
         kaspi: {
@@ -432,7 +533,7 @@ export const loadConfig = (): AppConfig => {
           name: getRequiredString('KASPI_NAME'),
           phone: getRequiredString('KASPI_PHONE'),
         },
-        driversChannelId: parseOptionalChatId('DRIVERS_CHANNEL_ID'),
+        ordersChannelId,
         driversChannelInvite: getOptionalString('DRIVERS_CHANNEL_INVITE'),
       },
     },
@@ -457,6 +558,7 @@ Object.freeze(config.jobs);
 if (config.tariff) {
   Object.freeze(config.tariff);
 }
+Object.freeze(config.subscriptions.planDurations);
 Object.freeze(config.subscriptions.prices);
 Object.freeze(config.subscriptions.payment.kaspi);
 Object.freeze(config.subscriptions.payment);

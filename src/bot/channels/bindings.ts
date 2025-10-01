@@ -77,7 +77,8 @@ const writeToCache = (type: ChannelType, value: ChannelBinding | null): void => 
 };
 
 const FALLBACK_CHAT_IDS: Partial<Record<ChannelType, number>> = {
-  drivers: config.subscriptions.payment.driversChannelId,
+  drivers: config.channels.ordersChannelId,
+  verify: config.channels.bindVerifyChannelId,
 };
 
 const getConfiguredFallbackChatId = (type: ChannelType): number | null => {

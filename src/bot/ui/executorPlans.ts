@@ -22,7 +22,7 @@ const buildExtendAction = (planId: number, days: number, secret: string): string
 export const buildExecutorPlanActionKeyboard = (
   plan: ExecutorPlanRecord,
 ): InlineKeyboardMarkup => {
-  const secret = config.bot.callbackSignSecret ?? config.bot.token;
+  const secret = config.bot.hmacSecret ?? config.bot.token;
 
   const extend7 = buildExtendAction(plan.id, 7, secret);
   const extend15 = buildExtendAction(plan.id, 15, secret);
