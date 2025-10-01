@@ -5,7 +5,7 @@ import type {
 } from 'telegraf/typings/core/types/typegram';
 
 import { config, logger } from '../../config';
-import { getChannelBinding } from '../channels/bindings';
+import { getChannelBinding, STATS_CHANNEL } from '../channels/bindings';
 import { CITY_LABEL, type AppCity } from '../../domain/cities';
 import type { OrderRecord, OrderKind } from '../../types';
 import type { ExecutorRole, UserSubscriptionStatus } from '../types';
@@ -215,7 +215,7 @@ const ensureReportReady = async (): Promise<ReportReadiness> => {
   }
 
   try {
-    const binding = await getChannelBinding('stats');
+    const binding = await getChannelBinding(STATS_CHANNEL);
     if (!binding) {
       logger.debug('Stats channel binding is not configured, skipping report');
       return { state: 'missing' };

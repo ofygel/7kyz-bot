@@ -2,7 +2,7 @@ import { Telegraf } from 'telegraf';
 import type { ChatMemberUpdated } from 'telegraf/typings/core/types/typegram';
 
 import { logger } from '../../config';
-import { getChannelBinding } from './bindings';
+import { getChannelBinding, ORDERS_CHANNEL } from './bindings';
 import {
   findActiveSubscriptionForUser,
   markSubscriptionsExpired,
@@ -50,7 +50,7 @@ export const registerMembershipSync = (
       return;
     }
 
-    const binding = await getChannelBinding('drivers');
+    const binding = await getChannelBinding(ORDERS_CHANNEL);
     if (!binding || binding.chatId !== update.chat.id) {
       return;
     }

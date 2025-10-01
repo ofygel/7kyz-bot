@@ -29,7 +29,11 @@ import {
   type SessionKey,
   type SessionScope,
 } from '../../db';
-import { getChannelBinding } from '../channels/bindings';
+import {
+  getChannelBinding,
+  BIND_VERIFY_CHANNEL,
+  ORDERS_CHANNEL,
+} from '../channels/bindings';
 import { getExecutorRoleCopy } from '../copy';
 import { EXECUTOR_ORDERS_ACTION } from '../flows/executor/menu';
 import {
@@ -330,7 +334,7 @@ const activateVerificationTrial = async (
     return null;
   }
 
-  const binding = await verificationTrialDependencies.getChannelBinding('drivers');
+  const binding = await verificationTrialDependencies.getChannelBinding(ORDERS_CHANNEL);
   let inviteAvailable = true;
 
   if (!binding) {
@@ -623,7 +627,7 @@ const reviveVerificationApplication = (payload: unknown): VerificationApplicatio
 
 const queue: ModerationQueue<VerificationApplication> = createModerationQueue<VerificationApplication>({
   type: 'verify',
-  channelType: 'verify',
+  channelType: BIND_VERIFY_CHANNEL,
   defaultRejectionReasons: DEFAULT_REASONS,
   renderMessage: buildVerificationMessage,
   deserializeItem: reviveVerificationApplication,

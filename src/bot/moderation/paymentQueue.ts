@@ -2,7 +2,7 @@ import { Markup, Telegraf, Telegram } from 'telegraf';
 
 import { config, logger } from '../../config';
 import { activateSubscription } from '../../db/subscriptions';
-import { getChannelBinding } from '../channels/bindings';
+import { BIND_VERIFY_CHANNEL, ORDERS_CHANNEL, getChannelBinding } from '../channels/bindings';
 import { getExecutorRoleCopy } from '../copy';
 import type { BotContext, ExecutorRole } from '../types';
 import {
@@ -331,7 +331,7 @@ const handleSubscriptionApproval = async (
 
   const roleCopy = getExecutorRoleCopy(subscription.role);
   const fallbackInvite = config.subscriptions.payment.driversChannelInvite;
-  const binding = await getChannelBinding('drivers');
+  const binding = await getChannelBinding(ORDERS_CHANNEL);
   if (!binding) {
     logger.error(
       { paymentId: item.id },
@@ -558,7 +558,7 @@ const revivePaymentReviewItem = (payload: unknown): PaymentReviewItem | null => 
 
 const queue: ModerationQueue<PaymentReviewItem> = createModerationQueue<PaymentReviewItem>({
   type: 'payment',
-  channelType: 'verify',
+  channelType: BIND_VERIFY_CHANNEL,
   defaultRejectionReasons: DEFAULT_REASONS,
   renderMessage: buildPaymentMessage,
   deserializeItem: revivePaymentReviewItem,

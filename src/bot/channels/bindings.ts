@@ -1,7 +1,14 @@
 import { config, logger } from '../../config';
 import { pool } from '../../db';
 
-export type ChannelType = 'verify' | 'drivers' | 'stats';
+export const BIND_VERIFY_CHANNEL = 'bind_verify_channel' as const;
+export const ORDERS_CHANNEL = 'orders_channel' as const;
+export const STATS_CHANNEL = 'stats_channel' as const;
+
+export type ChannelType =
+  | typeof BIND_VERIFY_CHANNEL
+  | typeof ORDERS_CHANNEL
+  | typeof STATS_CHANNEL;
 
 export interface ChannelBinding {
   type: ChannelType;
@@ -17,9 +24,9 @@ interface ChannelsRow {
 }
 
 const CHANNEL_COLUMNS: Record<ChannelType, ChannelColumn> = {
-  verify: 'verify_channel_id',
-  drivers: 'drivers_channel_id',
-  stats: 'stats_channel_id',
+  [BIND_VERIFY_CHANNEL]: 'verify_channel_id',
+  [ORDERS_CHANNEL]: 'drivers_channel_id',
+  [STATS_CHANNEL]: 'stats_channel_id',
 };
 
 const parseChatId = (value: string | number): number => {
@@ -77,8 +84,9 @@ const writeToCache = (type: ChannelType, value: ChannelBinding | null): void => 
 };
 
 const FALLBACK_CHAT_IDS: Partial<Record<ChannelType, number>> = {
-  drivers: config.channels.ordersChannelId,
-  verify: config.channels.bindVerifyChannelId,
+  [ORDERS_CHANNEL]:
+    config.channels.ordersChannelId ?? config.subscriptions.payment.ordersChannelId,
+  [BIND_VERIFY_CHANNEL]: config.channels.bindVerifyChannelId,
 };
 
 const getConfiguredFallbackChatId = (type: ChannelType): number | null => {

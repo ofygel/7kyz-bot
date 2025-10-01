@@ -14,7 +14,7 @@ import type {
 
 import { logger } from '../../config';
 import { pool } from '../../db';
-import { getChannelBinding } from '../channels/bindings';
+import { BIND_VERIFY_CHANNEL, getChannelBinding } from '../channels/bindings';
 import type { BotContext } from '../types';
 import { safeEditReplyMarkup } from '../../utils/tg';
 
@@ -217,7 +217,7 @@ const mapThreadRowToState = (row: SupportThreadRow): SupportThreadState | null =
 type ModerationChannelResolver = () => Promise<number | null>;
 
 const defaultResolveModerationChannel: ModerationChannelResolver = async () => {
-  const binding = await getChannelBinding('verify');
+  const binding = await getChannelBinding(BIND_VERIFY_CHANNEL);
   return binding?.chatId ?? null;
 };
 
