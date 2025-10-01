@@ -69,11 +69,6 @@ const formatSubscriptionStatus = (user: AuthUser): string => {
     : undefined;
   const planExpiry = plan && isValidDate(plan.endsAt) ? plan.endsAt : undefined;
 
-  if (plan && plan.planChoice === 'trial' && plan.status === 'active') {
-    const deadline = formatDeadline(planExpiry ?? subscriptionExpiry);
-    return deadline ? `пробный доступ до ${deadline}` : 'пробный доступ активен';
-  }
-
   switch (user.subscriptionStatus) {
     case 'active': {
       const deadline = formatDeadline(planExpiry ?? subscriptionExpiry);
@@ -91,34 +86,6 @@ const formatSubscriptionStatus = (user: AuthUser): string => {
     default:
       return 'не активна';
   }
-};
-
-const formatTrialStatus = (user: AuthUser): string => {
-  const plan = user.activeExecutorPlan;
-  if (!plan || plan.planChoice !== 'trial') {
-    return 'не активирован';
-  }
-
-  if (plan.status === 'blocked') {
-    return 'приостановлен';
-  }
-
-  const expires = isValidDate(plan.endsAt)
-    ? plan.endsAt
-    : isValidDate(user.subscriptionExpiresAt)
-      ? user.subscriptionExpiresAt
-      : undefined;
-
-  if (!expires) {
-    return plan.status === 'active' ? 'активен' : 'не активен';
-  }
-
-  if (expires.getTime() <= Date.now()) {
-    return `истёк ${formatDate(expires)}`;
-  }
-
-  const deadline = formatDeadline(expires);
-  return deadline ? `активен до ${deadline}` : 'активен';
 };
 
 const shouldHideSubscriptionForUser = (ctx: BotContext): boolean =>
@@ -214,7 +181,6 @@ export const buildProfileCardText = (ctx: BotContext): string => {
   if (!shouldHideSubscriptionForUser(ctx)) {
     lines.push(`Подписка: ${formatSubscriptionStatus(authUser)}`);
   }
-  lines.push(`Пробный период: ${formatTrialStatus(authUser)}`);
   lines.push(`Активный заказ: ${authUser.hasActiveOrder ? 'да' : 'нет'}`);
 
   const performanceLines = extractPerformanceMetrics(authUser);

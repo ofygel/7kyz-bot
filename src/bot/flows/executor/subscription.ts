@@ -51,7 +51,7 @@ const buildSubscriptionInfoText = (ctx: BotContext): string => {
     '',
     ...buildPaymentDetails(),
     '',
-    'После оплаты отправьте чек напрямую в поддержку, чтобы быстрее получить доступ. Для пробного периода тоже напишите в поддержку — ребята подскажут, как его запросить.',
+    'После оплаты отправьте чек напрямую в поддержку, чтобы быстрее получить доступ.',
   ].join('\n');
 };
 
@@ -63,7 +63,6 @@ const buildSubscriptionKeyboard = () => {
   return Markup.inlineKeyboard([
     ...planRows,
     [Markup.button.url('Написать в поддержку', SUPPORT_LINK)],
-    [Markup.button.url('Запросить пробный период', SUPPORT_LINK)],
     [Markup.button.callback('⬅️ Назад в меню', EXECUTOR_MENU_ACTION)],
   ]).reply_markup;
 };

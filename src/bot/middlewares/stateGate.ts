@@ -1,6 +1,6 @@
 import type { MiddlewareFn } from 'telegraf';
 
-import { executorKeyboard, onboardingKeyboard, removeKeyboard } from '../ui/menus';
+import { onboardingKeyboard, removeKeyboard } from '../ui/menus';
 import type { BotContext } from '../types';
 import { logger } from '../../config';
 import { isSafeModeSession } from '../flows/common/safeMode';
@@ -24,17 +24,6 @@ const getMessageText = (ctx: BotContext): string | undefined => {
   }
   const trimmed = message.text.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-};
-
-const isExecutorUser = (ctx: BotContext): boolean => {
-  const role = ctx.auth?.user?.role;
-  const status = ctx.auth?.user?.status;
-
-  if (!ctx.auth?.user) {
-    return false;
-  }
-
-  return role === 'executor' || role === 'moderator' || status === 'active_executor';
 };
 
 export const stateGate = (): MiddlewareFn<BotContext> => async (ctx, next) => {
@@ -93,24 +82,6 @@ export const stateGate = (): MiddlewareFn<BotContext> => async (ctx, next) => {
 
     if (!isCallbackQuery || !isChannelChat) {
       await ctx.reply(warning, removeKeyboard());
-    }
-    return;
-  }
-
-  const executor = isExecutorUser(ctx);
-
-  if (user.status === 'trial_expired') {
-    if (!executor) {
-      await next();
-      return;
-    }
-
-    const warning =
-      'Пробный период завершён. Продлите подписку, чтобы продолжить получать заказы.';
-    await answerCallbackQuery(warning);
-
-    if (!isCallbackQuery || !isChannelChat) {
-      await ctx.reply(warning, executorKeyboard());
     }
     return;
   }
