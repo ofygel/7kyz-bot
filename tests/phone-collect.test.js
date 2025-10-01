@@ -145,10 +145,20 @@ test('savePhone persists contact immediately when database is available', { conc
     assert.equal(mockRedis.getList(queueKey).length, 0, 'queue should stay empty');
     assert.equal(cacheCalls.length, 1, 'cache primed once');
     assert.equal(cacheCalls[0].executorId, 123);
-    assert.deepEqual(cacheCalls[0].record, { hasPhone: true, isBlocked: false });
+    assert.deepEqual(cacheCalls[0].record, { phone: '+87010000000', isBlocked: false });
     assert.equal(cacheCalls[0].options.ttlSeconds, 3600);
-    assert.equal(mockRedis.setCalls.length, 1, 'cache write recorded');
-    assert.equal(mockRedis.setCalls[0].ttl, 3600);
+    assert.equal(mockRedis.setCalls.length, 2, 'primary and backup cache writes recorded');
+    const primaryCall = mockRedis.setCalls.find((call) => call.mode === 'EX');
+    assert(primaryCall, 'primary cache call should use EX mode');
+    assert.equal(primaryCall.ttl, 3600);
+    const primaryPayload = JSON.parse(primaryCall.value);
+    assert.equal(primaryPayload.phone, '+87010000000');
+    assert.equal(primaryPayload.isBlocked, false);
+    const backupCall = mockRedis.setCalls.find((call) => !call.mode);
+    assert(backupCall, 'backup cache call should exist');
+    const backupPayload = JSON.parse(backupCall.value);
+    assert.equal(backupPayload.phone, '+87010000000');
+    assert.equal(backupPayload.isBlocked, false);
   } finally {
     redisModule.getRedisClient = originalGetRedisClient;
     phoneVerificationModule.persistPhoneVerification = originalPersist;
@@ -217,7 +227,7 @@ test('savePhone enqueues update when database is unavailable and flush later suc
     assert.equal(registrations, 1);
     assert.equal(verifications, 1);
     assert.equal(cacheCalls.length, 1);
-    assert.deepEqual(cacheCalls[0].record, { hasPhone: true, isBlocked: true });
+    assert.deepEqual(cacheCalls[0].record, { phone: '+7 701 111-22-33', isBlocked: true });
 
     shouldFail = false;
     await queueModule.flushUserPhoneUpdates();

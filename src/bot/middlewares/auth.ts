@@ -5,6 +5,7 @@ import { findActiveExecutorPlanByPhone, hasUsersCitySelectedColumn, pool } from 
 import { isAppCity } from '../../domain/cities';
 import { copy } from '../copy';
 import { enterSafeMode } from '../services/cleanup';
+import { primeExecutorOrderAccessCache } from '../services/executorAccess';
 import type { ExecutorPlanRecord } from '../../types';
 import {
   EXECUTOR_ROLES,
@@ -433,6 +434,15 @@ const mapAuthRow = async (row: AuthQueryRow): Promise<AuthState> => {
   const status = deriveUserStatus(row, normaliseStatus(row.status), isModerator);
   const lastMenuRole = normaliseMenuRole(row.last_menu_role);
   const phone = normaliseString(row.phone);
+
+  try {
+    await primeExecutorOrderAccessCache(telegramId, {
+      phone: phone ?? null,
+      isBlocked: Boolean(row.is_blocked),
+    });
+  } catch (error) {
+    logger.warn({ err: error, telegramId }, 'Failed to prime executor access cache from auth state');
+  }
 
   if (role === 'client') {
     const awaitingActivation =

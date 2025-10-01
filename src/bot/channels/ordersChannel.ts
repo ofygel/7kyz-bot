@@ -1567,6 +1567,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
 export const __testing = {
   orderStates,
   resolveAuthorizedChatId,
+  processOrderAction,
   handleOrderDecision,
   handleOrderRelease,
   handleOrderCompletion,

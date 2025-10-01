@@ -1,5 +1,6 @@
 import { config, logger } from '../config';
 import { persistPhoneVerification } from '../db/phoneVerification';
+import { updateCachedExecutorAccess } from '../bot/services/executorAccess';
 import { getRedisClient } from './redis';
 
 const PHONE_UPDATE_QUEUE_KEY = 'user-phone-updates';
@@ -66,6 +67,14 @@ export const flushUserPhoneUpdates = async (): Promise<void> => {
 
     try {
       await persistPhoneVerification(update);
+      try {
+        await updateCachedExecutorAccess(update.telegramId, { phone: update.phone });
+      } catch (cacheError) {
+        logger.warn(
+          { err: cacheError, telegramId: update.telegramId },
+          'Failed to update executor access cache after queued phone flush',
+        );
+      }
     } catch (error) {
       logger.error(
         { err: error, telegramId: update.telegramId },
