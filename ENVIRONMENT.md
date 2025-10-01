@@ -9,8 +9,10 @@ These variables must be present; the application will refuse to start if any of 
 are missing or blank.
 
 - `BOT_TOKEN` – Telegram bot token obtained via [@BotFather](https://t.me/BotFather).
-- `HMAC_SECRET` – Secret key used to sign callback payloads and tokens. Generate a
-  long random string and keep it separate from the bot token.
+- `HMAC_SECRET` – Secret key used to sign callback payloads and tokens. Generate at
+  least 32 bytes of cryptographically strong random data (for example via
+  `openssl rand -hex 32` or `openssl rand -base64 32`) and keep it separate from the
+  bot token.
 - `DATABASE_URL` – PostgreSQL connection string used by the application layer.
 - `KASPI_CARD` – Kaspi Gold card number shown in the subscription instructions.
 - `KASPI_NAME` – Account holder name displayed alongside the Kaspi details.
