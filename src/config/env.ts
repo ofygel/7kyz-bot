@@ -410,6 +410,7 @@ export interface AppConfig {
     token: string;
     hmacSecret: string;
     callbackTtlSeconds: number;
+    executorAccessCacheTtlSeconds: number;
   };
   features: {
     trialEnabled: boolean;
@@ -507,6 +508,10 @@ export const loadConfig = (): AppConfig => {
       token: process.env.BOT_TOKEN as string,
       hmacSecret: getRequiredString('HMAC_SECRET'),
       callbackTtlSeconds: parsePositiveInt('CALLBACK_TTL_SECONDS', 600),
+      executorAccessCacheTtlSeconds: parsePositiveInt(
+        'EXECUTOR_ACCESS_CACHE_TTL_SECONDS',
+        6 * 60 * 60,
+      ),
     },
     features: {
       trialEnabled: parseBoolean(process.env.FEATURE_TRIAL_ENABLED, true),

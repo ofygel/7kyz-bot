@@ -1,4 +1,4 @@
-import { logger } from '../../config';
+import { config, logger } from '../../config';
 import { pool } from '../../db/client';
 import { getRedisClient } from '../../infra/redis';
 
@@ -14,7 +14,7 @@ interface ExecutorOrderAccessRecord {
 
 const CACHE_PREFIX = 'executor-access:';
 const CACHE_BACKUP_PREFIX = 'executor-access:backup:';
-const CACHE_TTL_SECONDS = 60;
+const CACHE_TTL_SECONDS = config.bot.executorAccessCacheTtlSeconds;
 
 const formatCacheKey = (executorId: number): string => `${CACHE_PREFIX}${executorId}`;
 const formatBackupKey = (executorId: number): string => `${CACHE_BACKUP_PREFIX}${executorId}`;
@@ -165,8 +165,7 @@ const rememberExecutorAccessSnapshot = async (
 const mergeExecutorAccessSnapshot = async (
   executorId: number,
   patch: Partial<ExecutorOrderAccessPrimaryData>,
-  options?: { ttlSeconds?: number },
-): Promise<void> => {
+): Promise<ExecutorOrderAccessPrimaryData> => {
   const existing =
     (await loadExecutorAccessFromCache(executorId))
       ?? (await loadExecutorAccessFromBackup(executorId))
@@ -177,7 +176,7 @@ const mergeExecutorAccessSnapshot = async (
     isBlocked: patch.isBlocked !== undefined ? patch.isBlocked : existing.isBlocked,
   };
 
-  await rememberExecutorAccessSnapshot(executorId, record, options);
+  return record;
 };
 
 export const getExecutorOrderAccess = async (
@@ -215,14 +214,6 @@ export const primeExecutorOrderAccessCache = async (
   await rememberExecutorAccessSnapshot(executorId, record, options);
 };
 
-export const updateCachedExecutorAccess = async (
-  executorId: number,
-  patch: Partial<ExecutorOrderAccessPrimaryData>,
-  options?: { ttlSeconds?: number },
-): Promise<void> => {
-  await mergeExecutorAccessSnapshot(executorId, patch, options);
-};
-
 const deleteExecutorAccessCacheKey = async (
   client: NonNullable<ReturnType<typeof getRedisClient>>,
   key: string,
@@ -256,6 +247,15 @@ export const refreshExecutorOrderAccessCache = async (
   if (record) {
     await primeExecutorOrderAccessCache(executorId, record, options);
   }
+};
+
+export const updateCachedExecutorAccess = async (
+  executorId: number,
+  patch: Partial<ExecutorOrderAccessPrimaryData>,
+  options?: { ttlSeconds?: number },
+): Promise<void> => {
+  const record = await mergeExecutorAccessSnapshot(executorId, patch);
+  await refreshExecutorOrderAccessCache(executorId, record, options);
 };
 
 export const hasExecutorOrderAccess = async (executorId: number): Promise<boolean> => {

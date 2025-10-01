@@ -1433,6 +1433,7 @@ const handleStatusCallback = async (
 
     await ctx.answerCbQuery('Статус обновлён');
     await refreshPlanCardMessage(ctx, outcome.plan);
+    await refreshExecutorOrderAccessCacheForPlan(outcome.plan);
     if (targetStatus !== 'blocked') {
       await scheduleExecutorPlanReminder(outcome.plan);
     }

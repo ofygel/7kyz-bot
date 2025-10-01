@@ -14,6 +14,7 @@ enableTestEnv();
 function enableTestEnv() {
   ensureEnv('BOT_TOKEN', 'test-bot-token');
   ensureEnv('DATABASE_URL', 'postgres://user:pass@localhost:5432/db');
+  ensureEnv('HMAC_SECRET', 'secret');
   ensureEnv('KASPI_CARD', '0000 0000 0000 0000');
   ensureEnv('KASPI_NAME', 'Test User');
   ensureEnv('KASPI_PHONE', '+70000000000');
@@ -21,6 +22,7 @@ function enableTestEnv() {
   ensureEnv('SUPPORT_URL', 'https://t.me/test_support');
   ensureEnv('WEBHOOK_DOMAIN', 'example.com');
   ensureEnv('WEBHOOK_SECRET', 'secret');
+  ensureEnv('EXECUTOR_ACCESS_CACHE_TTL_SECONDS', '21600');
 }
 
 const createMockRedis = () => {
@@ -52,6 +54,10 @@ const createMockRedis = () => {
       }
       strings.set(key, value);
       setCalls.push({ key, value, mode, ttl });
+    },
+    async del(key) {
+      const existed = strings.delete(key);
+      return existed ? 1 : 0;
     },
     async rpush(key, value) {
       const list = ensureList(key);
@@ -146,11 +152,14 @@ test('savePhone persists contact immediately when database is available', { conc
     assert.equal(cacheCalls.length, 1, 'cache primed once');
     assert.equal(cacheCalls[0].executorId, 123);
     assert.deepEqual(cacheCalls[0].record, { phone: '+87010000000', isBlocked: false });
-    assert.equal(cacheCalls[0].options.ttlSeconds, 3600);
+    assert.equal(
+      cacheCalls[0].options.ttlSeconds,
+      config.bot.executorAccessCacheTtlSeconds,
+    );
     assert.equal(mockRedis.setCalls.length, 2, 'primary and backup cache writes recorded');
     const primaryCall = mockRedis.setCalls.find((call) => call.mode === 'EX');
     assert(primaryCall, 'primary cache call should use EX mode');
-    assert.equal(primaryCall.ttl, 3600);
+    assert.equal(primaryCall.ttl, config.bot.executorAccessCacheTtlSeconds);
     const primaryPayload = JSON.parse(primaryCall.value);
     assert.equal(primaryPayload.phone, '+87010000000');
     assert.equal(primaryPayload.isBlocked, false);

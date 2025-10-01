@@ -1,7 +1,7 @@
 import { Markup, type MiddlewareFn } from 'telegraf';
 import type { ReplyKeyboardMarkup } from 'telegraf/typings/core/types/typegram';
 
-import { logger } from '../../../config';
+import { config, logger } from '../../../config';
 import { pool } from '../../../db/client';
 import { setUserBlockedStatus } from '../../../db/users';
 import {
@@ -35,7 +35,7 @@ const PHONE_FOREIGN_CONTACT_TEXT = [
 
 const PHONE_STEP_ACTIONS = ['📲 Поделиться контактом', PHONE_HELP_BUTTON_LABEL, PHONE_STATUS_BUTTON_LABEL];
 
-const EXECUTOR_ACCESS_CACHE_TTL_SECONDS = 60 * 60; // 1 hour to survive extended outages.
+const EXECUTOR_ACCESS_CACHE_TTL_SECONDS = config.bot.executorAccessCacheTtlSeconds; // Use configured TTL to survive extended outages.
 
 const rememberEphemeralMessage = (ctx: BotContext, messageId?: number): void => {
   if (!messageId) {
