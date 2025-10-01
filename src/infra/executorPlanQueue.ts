@@ -17,6 +17,7 @@ import type {
 } from '../types';
 import { getRedisClient } from './redis';
 import { parseDateTimeInTimezone } from '../utils/time';
+import { refreshExecutorOrderAccessCacheForPlan } from '../services/executorPlans/accessCache';
 
 const MUTATION_QUEUE_KEY = 'executor-plan-mutations';
 const MAX_MUTATIONS_PER_FLUSH = 100;
@@ -107,6 +108,7 @@ const applyMutation = async (
             'Failed to persist executor block entry',
           );
         }
+        await refreshExecutorOrderAccessCacheForPlan(plan);
       } else if (mutation.payload.status === 'active') {
         try {
           await removeExecutorBlock(plan.phone);
@@ -116,6 +118,7 @@ const applyMutation = async (
             'Failed to remove executor block entry',
           );
         }
+        await refreshExecutorOrderAccessCacheForPlan(plan);
       }
 
       return { type: 'updated', plan };

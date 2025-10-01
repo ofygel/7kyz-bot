@@ -27,6 +27,7 @@ import {
   type ExecutorPlanMutationOutcome,
 } from '../../../infra/executorPlanQueue';
 import { buildPlanSummary } from '../../../services/executorPlans/reminders';
+import { refreshExecutorOrderAccessCacheForPlan } from '../../../services/executorPlans/accessCache';
 import {
   EXECUTOR_PLAN_BLOCK_ACTION,
   EXECUTOR_PLAN_EDIT_ACTION,
@@ -1327,6 +1328,7 @@ const handleBlockCommand = async (
       return;
     }
 
+    await refreshExecutorOrderAccessCacheForPlan(outcome.plan);
     await ctx.reply(['Статус обновлён ✅', buildPlanSummary(outcome.plan)].join('\n\n'));
     if (status !== 'blocked') {
       await scheduleExecutorPlanReminder(outcome.plan);
