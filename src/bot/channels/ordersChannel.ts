@@ -1,7 +1,7 @@
 import { Telegraf, Telegram } from 'telegraf';
 import type { InlineKeyboardMarkup } from 'telegraf/typings/core/types/typegram';
 
-import { getChannelBinding } from './bindings';
+import { getChannelBinding, ORDERS_CHANNEL } from './bindings';
 import { config, logger } from '../../config';
 import { withTx } from '../../db/client';
 import { formatEtaMinutes } from '../services/pricing';
@@ -226,7 +226,7 @@ const resolveAuthorizedChatId = async (
     return chatId;
   }
 
-  const binding = await getChannelBinding('drivers');
+  const binding = await getChannelBinding(ORDERS_CHANNEL);
   if (binding && binding.chatId === chatId) {
     return chatId;
   }
@@ -325,7 +325,7 @@ export const handleClientOrderCancellation = async (
     orderStates.delete(order.id);
 
     if (typeof order.channelMessageId === 'number') {
-      const binding = await getChannelBinding('drivers');
+      const binding = await getChannelBinding(ORDERS_CHANNEL);
       if (!binding) {
         logger.warn({ orderId: order.id }, 'Drivers channel binding missing during cancellation');
       } else {
@@ -555,7 +555,7 @@ export const publishOrderToDriversChannel = async (
   telegram: Telegram,
   orderId: number,
 ): Promise<PublishOrderResult> => {
-  const binding = await getChannelBinding('drivers');
+  const binding = await getChannelBinding(ORDERS_CHANNEL);
   if (!binding) {
     logger.warn({ orderId }, 'Drivers channel is not configured, skipping publish');
     return { status: 'missing_channel' } satisfies PublishOrderResult;

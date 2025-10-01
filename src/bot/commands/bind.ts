@@ -1,7 +1,13 @@
 import { Telegraf } from 'telegraf';
 import type { MessageEntity } from 'telegraf/types';
 
-import { saveChannelBinding, type ChannelType } from '../channels/bindings';
+import {
+  BIND_VERIFY_CHANNEL,
+  ORDERS_CHANNEL,
+  STATS_CHANNEL,
+  saveChannelBinding,
+  type ChannelType,
+} from '../channels/bindings';
 import { logger } from '../../config';
 import type { BotContext } from '../types';
 import { onlyPrivate } from '../middlewares/onlyPrivate';
@@ -17,17 +23,17 @@ interface BindCommandConfig {
 const BIND_COMMANDS: BindCommandConfig[] = [
   {
     command: 'bind_verify_channel',
-    type: 'verify',
+    type: BIND_VERIFY_CHANNEL,
     successLabel: 'Канал верификации',
   },
   {
-    command: 'bind_drivers_channel',
-    type: 'drivers',
+    command: 'bind_orders_channel',
+    type: ORDERS_CHANNEL,
     successLabel: 'Канал исполнителей',
   },
   {
     command: 'bind_stat_channel',
-    type: 'stats',
+    type: STATS_CHANNEL,
     successLabel: 'Канал отчётов',
   },
 ];

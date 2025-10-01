@@ -7,6 +7,7 @@ import type {
   ModerationPlanWizardState,
 } from '../../types';
 import { config, logger } from '../../../config';
+import { getChannelBinding, BIND_VERIFY_CHANNEL } from '../bindings';
 import { getPlanChoiceDurationDays, getPlanChoiceLabel } from '../../../domain/executorPlans';
 import type {
   ExecutorPlanChoice,
@@ -63,6 +64,15 @@ const VERIFY_CHANNEL_COMMANDS: BotCommand[] = [
 ];
 
 let verifyChannelCommandsRegistered = false;
+const resolveVerifyChannelId = async (): Promise<number | null> => {
+  try {
+    const binding = await getChannelBinding(BIND_VERIFY_CHANNEL);
+    return binding?.chatId ?? null;
+  } catch (error) {
+    logger.error({ err: error }, 'Failed to resolve verify channel binding');
+    return config.channels.bindVerifyChannelId ?? null;
+  }
+};
 
 const ensureVerifyChannelCommands = (bot: Telegraf<BotContext>): void => {
   if (verifyChannelCommandsRegistered) {
@@ -71,12 +81,20 @@ const ensureVerifyChannelCommands = (bot: Telegraf<BotContext>): void => {
 
   verifyChannelCommandsRegistered = true;
 
-  const chatId = config.channels.bindVerifyChannelId;
-  if (!chatId) {
-    return;
-  }
+  void (async () => {
+    const chatId = await resolveVerifyChannelId();
+    if (!chatId) {
+      return;
+    }
 
-  void setChatCommands(bot.telegram, chatId, VERIFY_CHANNEL_COMMANDS, { showMenuButton: false });
+    try {
+      await setChatCommands(bot.telegram, chatId, VERIFY_CHANNEL_COMMANDS, {
+        showMenuButton: false,
+      });
+    } catch (error) {
+      logger.error({ err: error, chatId }, 'Failed to register verify channel commands');
+    }
+  })();
 };
 
 const EXTEND_CALLBACK_PATTERN = new RegExp(
@@ -218,8 +236,8 @@ const parseStartDate = (value: string): Date | null => {
   return null;
 };
 
-const ensureVerifyChannel = (ctx: BotContext): boolean => {
-  const expectedId = config.channels.bindVerifyChannelId;
+const ensureVerifyChannel = async (ctx: BotContext): Promise<boolean> => {
+  const expectedId = await resolveVerifyChannelId();
   if (!expectedId) {
     return true;
   }
@@ -599,7 +617,7 @@ const renderSummaryStep = async (
 
   state.startAt = state.startAt ?? new Date();
 
-  const chatId = resolvePlanChatId(ctx);
+  const chatId = await resolvePlanChatId(ctx);
   if (chatId === null) {
     try {
       await ctx.reply(PLAN_CHAT_ID_REPLY_MESSAGE);
@@ -720,13 +738,16 @@ const normalisePlanCommentInput = (value: string): string | undefined => {
 const PLAN_CHAT_ID_ALERT_MESSAGE = 'Не удалось определить чат для публикации плана';
 const PLAN_CHAT_ID_REPLY_MESSAGE = `${PLAN_CHAT_ID_ALERT_MESSAGE}. Проверьте настройки канала.`;
 
-const resolvePlanChatId = (ctx: BotContext): number | null => {
-  const candidate = ctx.chat?.id ?? config.channels.bindVerifyChannelId;
-  if (typeof candidate !== 'number' || !Number.isFinite(candidate) || candidate === 0) {
-    return null;
+const resolvePlanChatId = async (ctx: BotContext): Promise<number | null> => {
+  const directId = ctx.chat?.id;
+  if (typeof directId === 'number' && Number.isFinite(directId) && directId !== 0) {
+    return directId;
   }
 
-  return candidate;
+  const resolved = await resolveVerifyChannelId();
+  return typeof resolved === 'number' && Number.isFinite(resolved) && resolved !== 0
+    ? resolved
+    : null;
 };
 
 interface BuildPlanInputOptions {
@@ -742,11 +763,8 @@ const buildPlanInputFromState = (
     return null;
   }
 
-  const chatId =
-    typeof options.chatId === 'number' && Number.isFinite(options.chatId) && options.chatId !== 0
-      ? options.chatId
-      : resolvePlanChatId(ctx);
-  if (chatId === null) {
+  const chatId = options.chatId;
+  if (typeof chatId !== 'number' || !Number.isFinite(chatId) || chatId === 0) {
     return null;
   }
 
@@ -777,7 +795,7 @@ const startWizard = async (
 };
 
 const handleWizardTextMessage = async (ctx: BotContext): Promise<boolean> => {
-  const expectedId = config.channels.bindVerifyChannelId;
+  const expectedId = await resolveVerifyChannelId();
   if (expectedId && ctx.chat?.id !== expectedId) {
     return false;
   }
@@ -1015,7 +1033,7 @@ const handleSummaryDecision = async (
   }
 
   state.startAt = state.startAt ?? new Date();
-  const chatId = resolvePlanChatId(ctx);
+  const chatId = await resolvePlanChatId(ctx);
   if (chatId === null) {
     if (typeof ctx.answerCbQuery === 'function') {
       try {
@@ -1175,7 +1193,7 @@ const handleMutationWithFallback = async (
 };
 
 const handleFormCommand = async (ctx: BotContext): Promise<void> => {
-  if (!ensureVerifyChannel(ctx)) {
+  if (!(await ensureVerifyChannel(ctx))) {
     return;
   }
 
@@ -1185,7 +1203,7 @@ const handleFormCommand = async (ctx: BotContext): Promise<void> => {
 };
 
 const handleExtendCommand = async (ctx: BotContext, args: string[]): Promise<void> => {
-  if (!ensureVerifyChannel(ctx)) {
+  if (!(await ensureVerifyChannel(ctx))) {
     return;
   }
 
@@ -1264,7 +1282,7 @@ const handleExtendCommand = async (ctx: BotContext, args: string[]): Promise<voi
 };
 
 const handleStatusCommand = async (ctx: BotContext, args: string[]): Promise<void> => {
-  if (!ensureVerifyChannel(ctx)) {
+  if (!(await ensureVerifyChannel(ctx))) {
     return;
   }
 
@@ -1300,7 +1318,7 @@ const handleBlockCommand = async (
   args: string[],
   status: 'blocked' | 'active',
 ): Promise<void> => {
-  if (!ensureVerifyChannel(ctx)) {
+  if (!(await ensureVerifyChannel(ctx))) {
     return;
   }
 
@@ -1337,7 +1355,7 @@ const handleBlockCommand = async (
 };
 
 const handleDeleteCommand = async (ctx: BotContext, args: string[]): Promise<void> => {
-  if (!ensureVerifyChannel(ctx)) {
+  if (!(await ensureVerifyChannel(ctx))) {
     return;
   }
 
