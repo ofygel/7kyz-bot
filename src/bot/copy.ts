@@ -23,19 +23,14 @@ export const copy = {
   errorGeneric: 'Произошёл сбой. Попробуйте повторить действие чуть позже.',
   invalidPhone: (example = '+7 777 123-45-67') => `Уточните телефон в формате E.164 (пример: ${example}).`,
   statusLine: (emoji: string, text: string) => `${emoji} ${text}`,
-  clientMiniStatus: (cityLabel?: string, trialDaysLeft?: number) =>
-    [
-      cityLabel ? `🏙️ Город: ${cityLabel}` : null,
-      (trialDaysLeft ?? 0) > 0 ? `🧪 Пробный: осталось ${trialDaysLeft} дн.` : null,
-    ].filter(Boolean).join('\n'),
+  clientMiniStatus: (cityLabel?: string) =>
+    [cityLabel ? `🏙️ Город: ${cityLabel}` : null].filter(Boolean).join('\n'),
   executorMiniStatus: (
     cityLabel: string | undefined,
     docs: { uploaded: number; required: number },
-    trialDaysLeft?: number,
   ) =>
     [
       cityLabel ? `🏙️ Город: ${cityLabel}` : null,
-      (trialDaysLeft ?? 0) > 0 ? `🧪 Пробный: осталось ${trialDaysLeft} дн.` : null,
       `🛡️ Документы: ${docs.uploaded}/${docs.required}`,
     ].filter(Boolean).join('\n'),
   orderChannelCard: (kind: 'taxi' | 'delivery', price: string, city: string) =>
