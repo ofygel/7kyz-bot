@@ -55,7 +55,7 @@ const UNDO_COMPLETE_ACTION_PREFIX = 'order:undo-complete';
 const UNDO_COMPLETE_ACTION_PATTERN = /^order:undo-complete:(\d+)$/;
 const UNDO_TTL_MS = 2 * 60 * 1000;
 
-const callbackSecret = config.bot.hmacSecret ?? config.bot.token;
+const callbackSecret = config.bot.hmacSecret;
 
 const formatOrderType = (kind: OrderKind): string =>
   kind === 'taxi' ? 'Такси' : 'Доставка';

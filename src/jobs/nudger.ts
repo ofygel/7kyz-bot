@@ -39,7 +39,7 @@ interface FlowPayloadShape {
   step?: FlowStepPayload;
 }
 
-const secret = config.bot.hmacSecret ?? config.bot.token;
+const secret = config.bot.hmacSecret;
 const BATCH_LIMIT = 100;
 const MIN_INACTIVITY_SECONDS = 90;
 

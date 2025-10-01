@@ -5,6 +5,7 @@ loadEnv();
 
 const REQUIRED_ENV_VARS = [
   'BOT_TOKEN',
+  'HMAC_SECRET',
   'DATABASE_URL',
   'KASPI_CARD',
   'KASPI_NAME',
@@ -407,7 +408,7 @@ export interface AppConfig {
   logRateLimit: number;
   bot: {
     token: string;
-    hmacSecret?: string;
+    hmacSecret: string;
     callbackTtlSeconds: number;
   };
   features: {
@@ -504,7 +505,7 @@ export const loadConfig = (): AppConfig => {
     logRateLimit: 50,
     bot: {
       token: process.env.BOT_TOKEN as string,
-      hmacSecret: getOptionalString('HMAC_SECRET'),
+      hmacSecret: getRequiredString('HMAC_SECRET'),
       callbackTtlSeconds: parsePositiveInt('CALLBACK_TTL_SECONDS', 600),
     },
     features: {

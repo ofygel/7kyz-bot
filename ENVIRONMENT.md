@@ -9,6 +9,8 @@ These variables must be present; the application will refuse to start if any of 
 are missing or blank.
 
 - `BOT_TOKEN` – Telegram bot token obtained via [@BotFather](https://t.me/BotFather).
+- `HMAC_SECRET` – Secret key used to sign callback payloads and tokens. Generate a
+  long random string and keep it separate from the bot token.
 - `DATABASE_URL` – PostgreSQL connection string used by the application layer.
 - `KASPI_CARD` – Kaspi Gold card number shown in the subscription instructions.
 - `KASPI_NAME` – Account holder name displayed alongside the Kaspi details.
@@ -53,9 +55,9 @@ are missing or blank.
 
 ## Callback security
 
-- `HMAC_SECRET` – Overrides the default secret used to sign callback payloads
-  and tokens. When omitted, the bot token is reused for signing. Provide a
-  separate secret to avoid exposing the bot token in other integrations.
+- `CALLBACK_TTL_SECONDS` – Lifetime (in seconds) assigned to signed callback
+  payloads. Defaults to 600 seconds when omitted. Increase the value if
+  operators need more time to review inline keyboards in admin chats.
 
 ## Subscription settings
 
