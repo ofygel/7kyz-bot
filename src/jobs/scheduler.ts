@@ -252,7 +252,7 @@ const processExpiredSubscriptions = async (
         subscriptionStatus: 'expired',
         subscriptionExpiresAt: subscription.expiresAt,
         hasActiveOrder: false,
-        status: 'trial_expired',
+        status: 'active_client',
         updatedAt: now,
       });
     } catch (error) {

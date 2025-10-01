@@ -82,7 +82,7 @@ export const registerMembershipSync = (
         subscriptionStatus: 'expired',
         subscriptionExpiresAt,
         hasActiveOrder: false,
-        status: 'trial_expired',
+        status: 'active_client',
         updatedAt: endedAt,
       });
     } catch (error) {

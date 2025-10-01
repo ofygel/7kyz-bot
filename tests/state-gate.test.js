@@ -21,7 +21,7 @@ ensureEnv('WEBHOOK_SECRET', 'secret');
 
 const { stateGate } = require('../src/bot/middlewares/stateGate');
 
-test('stateGate allows clients with trial_expired status to reach renderOrdersList', async () => {
+test('stateGate allows clients with expired subscription status to reach renderOrdersList', async () => {
   const replies = [];
 
   const ctx = {
@@ -30,7 +30,8 @@ test('stateGate allows clients with trial_expired status to reach renderOrdersLi
     auth: {
       user: {
         role: 'client',
-        status: 'trial_expired',
+        status: 'active_client',
+        subscriptionStatus: 'expired',
         phoneVerified: true,
       },
     },
@@ -49,7 +50,7 @@ test('stateGate allows clients with trial_expired status to reach renderOrdersLi
     renderOrdersListReached = true;
   });
 
-  assert.equal(nextCalled, true, 'Client middleware should proceed for trial_expired users');
+  assert.equal(nextCalled, true, 'Client middleware should proceed for users with expired subscription');
   assert.equal(
     renderOrdersListReached,
     true,
@@ -58,7 +59,7 @@ test('stateGate allows clients with trial_expired status to reach renderOrdersLi
   assert.equal(replies.length, 0, 'Client should not receive subscription warnings');
 });
 
-test('stateGate keeps restricting executors with trial_expired status', async () => {
+test('stateGate keeps restricting executors with suspended status', async () => {
   const replies = [];
 
   const ctx = {
@@ -67,7 +68,7 @@ test('stateGate keeps restricting executors with trial_expired status', async ()
     auth: {
       user: {
         role: 'executor',
-        status: 'trial_expired',
+        status: 'suspended',
         phoneVerified: true,
       },
     },
@@ -84,11 +85,11 @@ test('stateGate keeps restricting executors with trial_expired status', async ()
     nextCalled = true;
   });
 
-  assert.equal(nextCalled, false, 'Executor should still be blocked after trial expiration');
-  assert.equal(replies.length, 1, 'Executor should receive a subscription reminder');
+  assert.equal(nextCalled, false, 'Executor should be blocked while suspended');
+  assert.equal(replies.length, 1, 'Executor should receive a suspension warning');
   assert.equal(
     replies[0],
-    'Пробный период завершён. Продлите подписку, чтобы продолжить получать заказы.',
-    'Executor should see the subscription warning',
+    'Доступ к функциям бота ограничен. Обратитесь в поддержку.',
+    'Executor should see the suspension warning',
   );
 });
