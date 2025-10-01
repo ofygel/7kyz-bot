@@ -240,7 +240,7 @@ export const savePhone: MiddlewareFn<BotContext> = async (ctx, next) => {
   }
 
   const executorAccessRecord = {
-    hasPhone: true,
+    phone,
     isBlocked: Boolean(ctx.auth?.user?.isBlocked),
   } as const;
 

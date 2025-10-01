@@ -23,6 +23,36 @@ function enableTestEnv() {
   ensureEnv('WEBHOOK_SECRET', 'secret');
 }
 
+const createMockRedis = () => {
+  const strings = new Map();
+  const setCalls = [];
+  const getCalls = [];
+
+  return {
+    setCalls,
+    getCalls,
+    async get(key) {
+      getCalls.push(key);
+      return strings.has(key) ? strings.get(key) : null;
+    },
+    async set(key, value, mode, ttl) {
+      if (mode && mode !== 'EX') {
+        throw new Error(`Unsupported set mode: ${mode}`);
+      }
+      if (mode === 'EX' && typeof ttl !== 'number') {
+        throw new Error('TTL must be provided when using EX');
+      }
+
+      strings.set(key, value);
+      setCalls.push({ key, value, mode, ttl });
+    },
+    async del(key) {
+      const existed = strings.delete(key);
+      return existed ? 1 : 0;
+    },
+  };
+};
+
 const createMockContext = ({
   telegramId = 12345,
   phone = '+77010000000',
@@ -136,5 +166,96 @@ test('attemptClaimOrder succeeds for executor with phone without verification or
     ordersDb.lockOrderById = originalLockOrderById;
     ordersDb.tryClaimOrder = originalTryClaimOrder;
     delete require.cache[require.resolve('../src/bot/flows/executor/jobs')];
+  }
+});
+
+test('processOrderAction falls back to cached executor access when database is unavailable', async () => {
+  const redisModule = require('../src/infra/redis');
+  const executorAccessModule = require('../src/bot/services/executorAccess');
+  const dbClient = require('../src/db/client');
+  const ordersDb = require('../src/db/orders');
+
+  const ordersChannel = require('../src/bot/channels/ordersChannel');
+  const { processOrderAction } = ordersChannel.__testing;
+
+  const mockRedis = createMockRedis();
+  const originalGetRedisClient = redisModule.getRedisClient;
+  redisModule.getRedisClient = () => mockRedis;
+
+  const executorId = 98765;
+  const mainCacheKey = `executor-access:${executorId}`;
+  const backupCacheKey = `executor-access:backup:${executorId}`;
+
+  const originalPoolQuery = dbClient.pool.query;
+  const originalWithTx = dbClient.withTx;
+  const originalLockOrderById = ordersDb.lockOrderById;
+  const originalTryClaimOrder = ordersDb.tryClaimOrder;
+
+  let queryCalls = 0;
+
+  try {
+    await executorAccessModule.primeExecutorOrderAccessCache(executorId, {
+      phone: '+77015550000',
+      isBlocked: false,
+    });
+
+    await mockRedis.del(mainCacheKey);
+
+    dbClient.pool.query = async () => {
+      queryCalls += 1;
+      throw new Error('database unavailable');
+    };
+
+    const baseOrder = {
+      id: 321,
+      shortId: 'D-321',
+      kind: 'delivery',
+      status: 'open',
+      city: 'almaty',
+      pickup: {
+        address: 'Pickup',
+        latitude: 43.2,
+        longitude: 76.9,
+      },
+      dropoff: {
+        address: 'Dropoff',
+        latitude: 43.3,
+        longitude: 76.95,
+      },
+      price: {
+        amount: 2500,
+        currency: 'KZT',
+        distanceKm: 7,
+        etaMinutes: 20,
+      },
+    };
+
+    dbClient.withTx = async (callback) => callback({});
+
+    ordersDb.lockOrderById = async () => ({ ...baseOrder });
+
+    ordersDb.tryClaimOrder = async () => ({
+      ...baseOrder,
+      status: 'claimed',
+      claimedBy: executorId,
+      claimedAt: new Date(),
+    });
+
+    const outcome = await processOrderAction(321, 'accept', {
+      id: executorId,
+      role: 'executor',
+      executorKind: 'courier',
+      city: 'almaty',
+    });
+
+    assert.equal(outcome.outcome, 'claimed');
+    assert(mockRedis.getCalls.includes(backupCacheKey), 'backup cache should be consulted');
+    assert.equal(queryCalls, 1, 'database should be queried once before falling back');
+  } finally {
+    redisModule.getRedisClient = originalGetRedisClient;
+    dbClient.pool.query = originalPoolQuery;
+    dbClient.withTx = originalWithTx;
+    ordersDb.lockOrderById = originalLockOrderById;
+    ordersDb.tryClaimOrder = originalTryClaimOrder;
   }
 });
