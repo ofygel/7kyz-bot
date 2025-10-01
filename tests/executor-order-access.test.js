@@ -14,6 +14,7 @@ enableTestEnv();
 function enableTestEnv() {
   ensureEnv('BOT_TOKEN', 'test-bot-token');
   ensureEnv('DATABASE_URL', 'postgres://user:pass@localhost:5432/db');
+  ensureEnv('HMAC_SECRET', 'secret');
   ensureEnv('KASPI_CARD', '0000 0000 0000 0000');
   ensureEnv('KASPI_NAME', 'Test User');
   ensureEnv('KASPI_PHONE', '+70000000000');
@@ -21,7 +22,10 @@ function enableTestEnv() {
   ensureEnv('SUPPORT_URL', 'https://t.me/test_support');
   ensureEnv('WEBHOOK_DOMAIN', 'example.com');
   ensureEnv('WEBHOOK_SECRET', 'secret');
+  ensureEnv('EXECUTOR_ACCESS_CACHE_TTL_SECONDS', '21600');
 }
+
+const { config, loadConfig } = require('../src/config');
 
 const createMockRedis = () => {
   const strings = new Map();
@@ -324,9 +328,70 @@ test('refreshExecutorOrderAccessCacheForPlan immediately toggles executor access
 
     const mainSetCalls = mockRedis.setCalls.filter((call) => call.key === mainCacheKey);
     assert(mainSetCalls.length >= 1, 'main cache should be written at least once');
-    assert.equal(mainSetCalls[mainSetCalls.length - 1].ttl, 60);
+    assert.equal(
+      mainSetCalls[mainSetCalls.length - 1].ttl,
+      config.bot.executorAccessCacheTtlSeconds,
+    );
 
     assert.equal(dbCalls, 0, 'database should not be queried when cache is refreshed');
+  } finally {
+    redisModule.getRedisClient = originalGetRedisClient;
+    dbClient.pool.query = originalPoolQuery;
+  }
+});
+
+test('executor access cache TTL can be overridden via configuration', async () => {
+  const previous = process.env.EXECUTOR_ACCESS_CACHE_TTL_SECONDS;
+
+  try {
+    process.env.EXECUTOR_ACCESS_CACHE_TTL_SECONDS = '7200';
+    const customConfig = loadConfig();
+    assert.equal(customConfig.bot.executorAccessCacheTtlSeconds, 7200);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.EXECUTOR_ACCESS_CACHE_TTL_SECONDS;
+    } else {
+      process.env.EXECUTOR_ACCESS_CACHE_TTL_SECONDS = previous;
+    }
+  }
+});
+
+test('hasExecutorOrderAccess uses cached snapshot without hitting database for extended TTL', async () => {
+  const redisModule = require('../src/infra/redis');
+  const executorAccessModule = require('../src/bot/services/executorAccess');
+  const dbClient = require('../src/db/client');
+
+  const mockRedis = createMockRedis();
+  const originalGetRedisClient = redisModule.getRedisClient;
+  redisModule.getRedisClient = () => mockRedis;
+
+  const executorId = 554433;
+  const mainCacheKey = `executor-access:${executorId}`;
+
+  const originalPoolQuery = dbClient.pool.query;
+  let queryCalls = 0;
+
+  try {
+    await executorAccessModule.primeExecutorOrderAccessCache(executorId, {
+      phone: '+77012223344',
+      isBlocked: false,
+    });
+
+    dbClient.pool.query = async () => {
+      queryCalls += 1;
+      throw new Error('database should not be queried when cache is warm');
+    };
+
+    const hasAccess = await executorAccessModule.hasExecutorOrderAccess(executorId);
+    assert.equal(hasAccess, true);
+
+    assert.equal(queryCalls, 0, 'database should not be queried while cache entry is valid');
+
+    const primaryCall = mockRedis.setCalls.find(
+      (call) => call.key === mainCacheKey && call.mode === 'EX',
+    );
+    assert(primaryCall, 'primary cache should persist executor access');
+    assert.equal(primaryCall.ttl, config.bot.executorAccessCacheTtlSeconds);
   } finally {
     redisModule.getRedisClient = originalGetRedisClient;
     dbClient.pool.query = originalPoolQuery;

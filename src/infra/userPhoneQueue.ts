@@ -68,7 +68,9 @@ export const flushUserPhoneUpdates = async (): Promise<void> => {
     try {
       await persistPhoneVerification(update);
       try {
-        await updateCachedExecutorAccess(update.telegramId, { phone: update.phone });
+        await updateCachedExecutorAccess(update.telegramId, { phone: update.phone }, {
+          ttlSeconds: config.bot.executorAccessCacheTtlSeconds,
+        });
       } catch (cacheError) {
         logger.warn(
           { err: cacheError, telegramId: update.telegramId },
