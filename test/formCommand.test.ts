@@ -248,7 +248,7 @@ const clearLog: { ids?: string[]; cleanupOnly?: boolean }[] = [];
 
 process.env.NODE_ENV = 'test';
 process.env.BOT_TOKEN = process.env.BOT_TOKEN ?? 'test-token';
-process.env.CALLBACK_SIGN_SECRET = process.env.CALLBACK_SIGN_SECRET ?? 'test-secret';
+process.env.HMAC_SECRET = process.env.HMAC_SECRET ?? 'test-secret';
 process.env.DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://user:pass@localhost:5432/db';
 process.env.KASPI_CARD = process.env.KASPI_CARD ?? '1234';
 process.env.KASPI_NAME = process.env.KASPI_NAME ?? 'Test User';
@@ -257,7 +257,7 @@ process.env.SUPPORT_USERNAME = process.env.SUPPORT_USERNAME ?? 'test_support';
 process.env.SUPPORT_URL = process.env.SUPPORT_URL ?? 'https://t.me/test_support';
 process.env.WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN ?? 'example.com';
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'secret';
-process.env.SUB_TRIAL_DAYS = process.env.SUB_TRIAL_DAYS ?? '3';
+process.env.TRIAL_DAYS = process.env.TRIAL_DAYS ?? '3';
 
 void (async () => {
   const { __testing } = await import('../src/bot/channels/commands/form');

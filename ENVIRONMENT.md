@@ -51,14 +51,26 @@ are missing or blank.
 - `SESSION_CACHE_PREFIX` – Prefix appended to Redis keys that store session
   payloads. Defaults to `session:`.
 
+## Callback security
+
+- `HMAC_SECRET` – Overrides the default secret used to sign callback payloads
+  and tokens. When omitted, the bot token is reused for signing. Provide a
+  separate secret to avoid exposing the bot token in other integrations.
+
 ## Subscription settings
 
+- `TRIAL_DAYS` – Duration (in days) of the free trial available to executors. The
+  default is 2 days.
+- `PLAN_DURATIONS` – Overrides for the paid plan lengths. Accepts either a JSON
+  object (for example, `{"7": 14, "15": 21}`) or a comma-separated list of
+  `plan:days` pairs (for example, `7:14,15:21,30:30`). Any plans not listed fall
+  back to the built-in defaults (7, 15 and 30 days respectively).
 - `SUB_PRICE_7`, `SUB_PRICE_15`, `SUB_PRICE_30` – Override subscription prices (in
   KZT) for 7, 15 and 30 day plans. Defaults are 5000, 9000 and 16000 respectively
   when the variables are omitted.
 - `SUB_WARN_HOURS_BEFORE` – Number of hours before expiry when reminder messages are
   sent. Defaults to 24 hours. The value must be a positive number.
-- `DRIVERS_CHANNEL_ID` – Optional numeric identifier used to seed the drivers channel
+- `ORDERS_CHANNEL_ID` – Optional numeric identifier used to seed the orders channel
   binding when `/bind_drivers_channel` has not been executed yet. Provide the full
   chat ID (including the leading `-100` prefix for Telegram supergroups) to skip the
   manual binding step during initial deployments.

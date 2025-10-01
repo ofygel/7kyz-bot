@@ -9,6 +9,11 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - WEBHOOK_DOMAIN=${WEBHOOK_DOMAIN}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - HMAC_SECRET=${HMAC_SECRET:-}
+      - REDIS_URL=${REDIS_URL:-}
+      - TRIAL_DAYS=${TRIAL_DAYS:-2}
+      - PLAN_DURATIONS=${PLAN_DURATIONS:-}
+      - ORDERS_CHANNEL_ID=${ORDERS_CHANNEL_ID:-}
     depends_on:
       - postgres
   postgres:

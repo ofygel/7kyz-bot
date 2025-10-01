@@ -51,7 +51,7 @@ process.env.SUPPORT_USERNAME = process.env.SUPPORT_USERNAME ?? 'test_support';
 process.env.SUPPORT_URL = process.env.SUPPORT_URL ?? 'https://t.me/test_support';
 process.env.WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN ?? 'example.com';
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'secret';
-process.env.SUB_TRIAL_DAYS = process.env.SUB_TRIAL_DAYS ?? '3';
+process.env.TRIAL_DAYS = process.env.TRIAL_DAYS ?? '3';
 
 void (async () => {
   const { REMINDER_OFFSETS_HOURS } = await import('../src/services/executorPlans/reminders');
@@ -60,12 +60,11 @@ void (async () => {
 
   const { computeReminderTime } = __testing;
 
-  const PLAN_CONFIGS: Array<{ choice: ExecutorPlanRecord['planChoice']; days: number }> = [
-    { choice: 'trial', days: getPlanChoiceDurationDays('trial') },
-    { choice: '7', days: 7 },
-    { choice: '15', days: 15 },
-    { choice: '30', days: 30 },
-  ];
+  const PLAN_CHOICES: ExecutorPlanRecord['planChoice'][] = ['trial', '7', '15', '30'];
+  const PLAN_CONFIGS = PLAN_CHOICES.map((choice) => ({
+    choice,
+    days: getPlanChoiceDurationDays(choice),
+  }));
 
   const msPerHour = 60 * 60 * 1000;
   const msPerDay = 24 * msPerHour;

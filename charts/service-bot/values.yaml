@@ -16,6 +16,8 @@ env:
       secretKeyRef:
         name: service-bot
         key: webhookSecret
+  - name: HMAC_SECRET
+    value: ""
   - name: DATABASE_URL
     value: ""
   - name: SENTRY_DSN
@@ -25,6 +27,14 @@ env:
         key: sentryDsn
   - name: SENTRY_TRACES_SAMPLE_RATE
     value: '0.1'
+  - name: REDIS_URL
+    value: ""
+  - name: TRIAL_DAYS
+    value: "2"
+  - name: PLAN_DURATIONS
+    value: ""
+  - name: ORDERS_CHANNEL_ID
+    value: ""
 ingress:
   enabled: false
   className: ""

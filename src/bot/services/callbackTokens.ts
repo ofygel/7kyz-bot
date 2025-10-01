@@ -348,7 +348,7 @@ export const bindInlineKeyboardToUser = (
     return keyboard;
   }
 
-  const secret = config.bot.callbackSignSecret ?? config.bot.token;
+  const secret = config.bot.hmacSecret ?? config.bot.token;
   if (!secret) {
     return keyboard;
   }
