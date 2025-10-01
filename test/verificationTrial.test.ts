@@ -16,23 +16,10 @@ process.env.SUPPORT_URL = process.env.SUPPORT_URL ?? 'https://t.me/test_support'
 process.env.WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN ?? 'example.com';
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET ?? 'secret';
 
-interface TrialCall {
-  chatId?: number;
-}
-
 void (async () => {
-  const { __testing } = await import('../src/bot/moderation/verifyQueue');
-
-  const trialCalls: TrialCall[] = [];
-  const fakeExpiry = new Date('2030-01-01T00:00:00Z');
-
-  __testing.setTrialDependencies({
-    getChannelBinding: async () => null,
-    createTrialSubscription: async (params) => {
-      trialCalls.push({ chatId: params.chatId });
-      return { subscriptionId: 1, expiresAt: fakeExpiry };
-    },
-  });
+  const { __testing, notifyVerificationApproval } = await import(
+    '../src/bot/moderation/verifyQueue'
+  );
 
   const application = {
     id: 'app-1',
@@ -45,24 +32,38 @@ void (async () => {
     role: 'courier',
   } as const;
 
-  const result = await __testing.activateVerificationTrial(application);
+  const fallback = __testing.buildFallbackApprovalNotification(application);
 
-  assert.ok(result, 'Expected trial notification to be returned');
-  assert.equal(trialCalls.length, 1, 'Trial subscription should be created when channel binding is missing');
+  const sentMessages: Array<{
+    chatId: number;
+    text: string;
+    replyMarkup: unknown;
+  }> = [];
+
+  const telegram: any = {
+    async sendMessage(chatId: number, text: string, options?: { reply_markup?: unknown }) {
+      sentMessages.push({ chatId, text, replyMarkup: options?.reply_markup });
+      return {};
+    },
+  };
+
+  await notifyVerificationApproval(telegram, application);
+
+  assert.equal(sentMessages.length, 1, 'Approval notification should be sent once');
   assert.equal(
-    trialCalls[0]?.chatId,
-    undefined,
-    'Trial creation should omit chat id when no channel binding is available',
+    sentMessages[0]?.chatId,
+    application.applicant.telegramId,
+    'Notification should be delivered to the applicant',
   );
+  assert.equal(sentMessages[0]?.text, fallback.text, 'Fallback text should be used');
+  assert.deepEqual(sentMessages[0]?.replyMarkup, fallback.keyboard, 'Support keyboard should be attached');
   assert.match(
-    result?.text ?? '',
-    /бесплатный доступ/i,
-    'Notification should mention the free access period',
+    sentMessages[0]?.text ?? '',
+    /Чтобы получить доступ, напишите в поддержку/i,
+    'Notification should reference manual access through support',
   );
 
-  console.log('verification trial fallback test: OK');
-
-  __testing.setTrialDependencies({});
+  console.log('verification approval fallback test: OK');
 
   global.__verificationTrialTestRan = true;
 })();
