@@ -11,7 +11,7 @@ import {
 } from './menu';
 import { ui } from '../../ui';
 import {
-  SUBSCRIPTION_PERIOD_OPTIONS,
+  getSubscriptionPeriodOptions,
   formatSubscriptionAmount,
 } from './subscriptionPlans';
 import { presentRolePick } from '../../commands/start';
@@ -38,7 +38,7 @@ const buildSubscriptionInfoText = (ctx: BotContext): string => {
   }
 
   const roleCopy = getExecutorRoleCopy(role);
-  const planLines = SUBSCRIPTION_PERIOD_OPTIONS.map((option) =>
+  const planLines = getSubscriptionPeriodOptions().map((option) =>
     buildPlanLine(option.label, option.amount, option.currency),
   );
 
@@ -56,7 +56,7 @@ const buildSubscriptionInfoText = (ctx: BotContext): string => {
 };
 
 const buildSubscriptionKeyboard = () => {
-  const planRows = SUBSCRIPTION_PERIOD_OPTIONS.map((option) => [
+  const planRows = getSubscriptionPeriodOptions().map((option) => [
     Markup.button.url(option.label, SUPPORT_LINK),
   ]);
 
