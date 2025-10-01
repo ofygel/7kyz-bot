@@ -114,7 +114,6 @@ const USER_STATUSES: readonly UserStatus[] = [
   'active_client',
   'active_executor',
   'safe_mode',
-  'trial_expired',
   'suspended',
   'banned',
 ];

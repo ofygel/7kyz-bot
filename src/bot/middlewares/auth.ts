@@ -137,7 +137,6 @@ const normaliseStatus = (value: Nullable<string>): UserStatus => {
     case 'active_client':
     case 'active_executor':
     case 'safe_mode':
-    case 'trial_expired':
     case 'suspended':
     case 'banned':
       return value;
@@ -307,12 +306,7 @@ const deriveUserStatus = (
   status: UserStatus,
   isModerator = false,
 ): UserStatus => {
-  if (
-    status === 'trial_expired'
-    || status === 'suspended'
-    || status === 'banned'
-    || status === 'safe_mode'
-  ) {
+  if (status === 'suspended' || status === 'banned' || status === 'safe_mode') {
     return status;
   }
 

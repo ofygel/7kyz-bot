@@ -88,7 +88,6 @@ test('buildProfileCardText enriches client profile with statuses and metrics', (
 
   assert.match(text, /Верификация: на проверке/);
   assert.doesNotMatch(text, /Подписка:/);
-  assert.match(text, /Пробный период: активен до/);
   assert.match(text, /Активный заказ: нет/);
   assert.match(text, /Показатели:/);
   assert.match(text, /Выполнено заказов:\s+12/);
@@ -161,7 +160,6 @@ test('buildProfileCardText surfaces executor metrics and navigation', () => {
 
   assert.match(text, /Верификация: подтверждена/);
   assert.match(text, /Подписка: активна/);
-  assert.match(text, /Пробный период: истёк/);
   assert.match(text, /Активный заказ: да/);
   assert.match(text, /Рейтинг:\s+4,8/);
   assert.match(text, /Выполнено заказов:\s+128/);
