@@ -1,4 +1,5 @@
 import { config } from '../../../config';
+import { getDayNoun, getPlanChoiceDurationDays } from '../../../domain/executorPlans';
 
 export interface SubscriptionPeriodOption {
   id: string;
@@ -12,34 +13,37 @@ export interface SubscriptionPeriodOption {
   currency: string;
 }
 
-export const SUBSCRIPTION_PERIOD_OPTIONS: readonly SubscriptionPeriodOption[] = [
-  {
-    id: '7',
-    label: '7 дней',
-    days: 7,
-    amount: config.subscriptions.prices.sevenDays,
+type PaidSubscriptionPlanId = '7' | '15' | '30';
+type SubscriptionPriceKey = 'sevenDays' | 'fifteenDays' | 'thirtyDays';
+
+const PLAN_PRICE_KEYS: Record<PaidSubscriptionPlanId, SubscriptionPriceKey> = {
+  '7': 'sevenDays',
+  '15': 'fifteenDays',
+  '30': 'thirtyDays',
+};
+
+const buildSubscriptionPeriodOption = (id: PaidSubscriptionPlanId): SubscriptionPeriodOption => {
+  const days = getPlanChoiceDurationDays(id);
+  const priceKey = PLAN_PRICE_KEYS[id];
+
+  return {
+    id,
+    label: `${days} ${getDayNoun(days)}`,
+    days,
+    amount: config.subscriptions.prices[priceKey],
     currency: config.subscriptions.prices.currency,
-  },
-  {
-    id: '15',
-    label: '15 дней',
-    days: 15,
-    amount: config.subscriptions.prices.fifteenDays,
-    currency: config.subscriptions.prices.currency,
-  },
-  {
-    id: '30',
-    label: '30 дней',
-    days: 30,
-    amount: config.subscriptions.prices.thirtyDays,
-    currency: config.subscriptions.prices.currency,
-  },
-] as const;
+  };
+};
+
+const PLAN_IDS: readonly PaidSubscriptionPlanId[] = ['7', '15', '30'];
+
+export const getSubscriptionPeriodOptions = (): readonly SubscriptionPeriodOption[] =>
+  PLAN_IDS.map((id) => buildSubscriptionPeriodOption(id));
 
 export const findSubscriptionPeriodOption = (
   id: string | undefined,
 ): SubscriptionPeriodOption | undefined =>
-  SUBSCRIPTION_PERIOD_OPTIONS.find((option) => option.id === id);
+  getSubscriptionPeriodOptions().find((option) => option.id === id);
 
 export const formatSubscriptionAmount = (
   amount: number,

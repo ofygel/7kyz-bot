@@ -176,6 +176,10 @@ const DEFAULT_PLAN_DURATIONS: Record<PlanDurationKey, number> = {
   '30': 30,
 };
 
+const DEFAULT_PLAN_DURATION_LIST = PLAN_DURATION_KEYS.map(
+  (key) => DEFAULT_PLAN_DURATIONS[key],
+);
+
 const parsePlanDurationValue = (key: string, value: unknown): number => {
   let numeric: number | null = null;
 
@@ -201,28 +205,23 @@ const parsePlanDurationValue = (key: string, value: unknown): number => {
   return Math.round(numeric);
 };
 
-const parsePlanDurations = (): Record<PlanDurationKey, number> => {
+const parsePlanDurations = (): number[] => {
   const raw = getOptionalString('PLAN_DURATIONS');
   if (!raw) {
-    return { ...DEFAULT_PLAN_DURATIONS };
+    return [...DEFAULT_PLAN_DURATION_LIST];
   }
 
   const trimmed = raw.trim();
   if (!trimmed) {
-    return { ...DEFAULT_PLAN_DURATIONS };
+    return [...DEFAULT_PLAN_DURATION_LIST];
   }
 
   const overrides: Partial<Record<PlanDurationKey, number>> = {};
-  const applyEntry = (key: string, value: unknown) => {
-    const candidate = key.trim();
-    if (!PLAN_DURATION_KEYS.includes(candidate as PlanDurationKey)) {
-      throw new Error(`Unsupported plan key in PLAN_DURATIONS: ${key}`);
-    }
-
-    overrides[candidate as PlanDurationKey] = parsePlanDurationValue(candidate, value);
+  const applyEntry = (key: PlanDurationKey, value: unknown) => {
+    overrides[key] = parsePlanDurationValue(key, value);
   };
 
-  if (trimmed.startsWith('{')) {
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(trimmed);
@@ -230,12 +229,28 @@ const parsePlanDurations = (): Record<PlanDurationKey, number> => {
       throw new Error('PLAN_DURATIONS must be valid JSON or a comma-separated list');
     }
 
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('PLAN_DURATIONS JSON payload must be an object');
-    }
+    if (Array.isArray(parsed)) {
+      if (parsed.length > PLAN_DURATION_KEYS.length) {
+        throw new Error('PLAN_DURATIONS cannot define more durations than available plans');
+      }
 
-    for (const [key, value] of Object.entries(parsed)) {
-      applyEntry(key, value);
+      parsed.forEach((value, index) => {
+        const key = PLAN_DURATION_KEYS[index];
+        if (key) {
+          applyEntry(key, value);
+        }
+      });
+    } else if (parsed && typeof parsed === 'object') {
+      for (const [key, value] of Object.entries(parsed)) {
+        const candidate = key.trim();
+        if (!PLAN_DURATION_KEYS.includes(candidate as PlanDurationKey)) {
+          throw new Error(`Unsupported plan key in PLAN_DURATIONS: ${key}`);
+        }
+
+        applyEntry(candidate as PlanDurationKey, value);
+      }
+    } else {
+      throw new Error('PLAN_DURATIONS JSON payload must be an object or array');
     }
   } else {
     const entries = trimmed
@@ -244,22 +259,43 @@ const parsePlanDurations = (): Record<PlanDurationKey, number> => {
       .filter((entry) => entry.length > 0);
 
     if (entries.length === 0) {
-      return { ...DEFAULT_PLAN_DURATIONS };
+      return [...DEFAULT_PLAN_DURATION_LIST];
     }
 
-    for (const entry of entries) {
-      const separatorIndex = entry.search(/[:=]/);
-      if (separatorIndex === -1) {
-        throw new Error('PLAN_DURATIONS entries must use key:value pairs');
+    const sequentialValues = entries.every((entry) => !/[:=]/.test(entry));
+
+    if (sequentialValues) {
+      if (entries.length > PLAN_DURATION_KEYS.length) {
+        throw new Error('PLAN_DURATIONS cannot define more durations than available plans');
       }
 
-      const key = entry.slice(0, separatorIndex);
-      const value = entry.slice(separatorIndex + 1);
-      applyEntry(key, value);
+      entries.forEach((value, index) => {
+        const key = PLAN_DURATION_KEYS[index];
+        if (key) {
+          applyEntry(key, value);
+        }
+      });
+    } else {
+      for (const entry of entries) {
+        const separatorIndex = entry.search(/[:=]/);
+        if (separatorIndex === -1) {
+          throw new Error(
+            'PLAN_DURATIONS entries must use key:value pairs or be plain numbers',
+          );
+        }
+
+        const key = entry.slice(0, separatorIndex).trim();
+        if (!PLAN_DURATION_KEYS.includes(key as PlanDurationKey)) {
+          throw new Error(`Unsupported plan key in PLAN_DURATIONS: ${key}`);
+        }
+
+        const value = entry.slice(separatorIndex + 1);
+        applyEntry(key as PlanDurationKey, value);
+      }
     }
   }
 
-  return { ...DEFAULT_PLAN_DURATIONS, ...overrides };
+  return PLAN_DURATION_KEYS.map((key) => overrides[key] ?? DEFAULT_PLAN_DURATIONS[key]);
 };
 
 const parsePositiveInt = (envKey: string, defaultValue: number): number => {
@@ -422,10 +458,12 @@ export interface AppConfig {
     phoneSyncIntervalMs: number;
   };
   tariff: TariffRates | null;
+  domain: {
+    planDurations: readonly number[];
+  };
   subscriptions: {
     warnHoursBefore: number;
     trialDays: number;
-    planDurations: Record<PlanDurationKey, number>;
     prices: {
       sevenDays: number;
       fifteenDays: number;
@@ -522,10 +560,12 @@ export const loadConfig = (): AppConfig => {
       phoneSyncIntervalMs: parsePositiveInt('JOBS_PHONE_SYNC_INTERVAL_MS', 5000),
     },
     tariff: parseGeneralTariff(),
+    domain: {
+      planDurations,
+    },
     subscriptions: {
       warnHoursBefore: parseWarnHours(process.env.SUB_WARN_HOURS_BEFORE),
       trialDays: parsePositiveNumber('TRIAL_DAYS', 2),
-      planDurations,
       prices: parseSubscriptionPrices(),
       payment: {
         kaspi: {
@@ -558,7 +598,8 @@ Object.freeze(config.jobs);
 if (config.tariff) {
   Object.freeze(config.tariff);
 }
-Object.freeze(config.subscriptions.planDurations);
+Object.freeze(config.domain.planDurations);
+Object.freeze(config.domain);
 Object.freeze(config.subscriptions.prices);
 Object.freeze(config.subscriptions.payment.kaspi);
 Object.freeze(config.subscriptions.payment);

@@ -267,4 +267,3 @@ export const hasExecutorOrderAccess = async (executorId: number): Promise<boolea
   return access.hasPhone && !access.isBlocked;
 };
 
-export type { ExecutorOrderAccessRecord, ExecutorOrderAccessPrimaryData };
