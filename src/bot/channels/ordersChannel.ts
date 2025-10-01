@@ -208,6 +208,22 @@ const parseChatId = (chatId: number | string | undefined): number | undefined =>
   return undefined;
 };
 
+const resolveConfiguredOrdersChannelId = (): number | null => {
+  const configured =
+    config.channels.ordersChannelId ?? config.subscriptions.payment.ordersChannelId;
+  return typeof configured === 'number' ? configured : null;
+};
+
+const getOrdersChannelChatId = async (): Promise<number | null> => {
+  const configured = resolveConfiguredOrdersChannelId();
+  if (configured !== null) {
+    return configured;
+  }
+
+  const binding = await getChannelBinding(ORDERS_CHANNEL);
+  return binding?.chatId ?? null;
+};
+
 const resolveAuthorizedChatId = async (
   orderId: number,
   chat: { id: number | string | undefined; type?: string | undefined },
@@ -226,8 +242,8 @@ const resolveAuthorizedChatId = async (
     return chatId;
   }
 
-  const binding = await getChannelBinding(ORDERS_CHANNEL);
-  if (binding && binding.chatId === chatId) {
+  const ordersChannelId = await getOrdersChannelChatId();
+  if (ordersChannelId === chatId) {
     return chatId;
   }
 
@@ -325,15 +341,15 @@ export const handleClientOrderCancellation = async (
     orderStates.delete(order.id);
 
     if (typeof order.channelMessageId === 'number') {
-      const binding = await getChannelBinding(ORDERS_CHANNEL);
-      if (!binding) {
+      const ordersChannelId = await getOrdersChannelChatId();
+      if (!ordersChannelId) {
         logger.warn({ orderId: order.id }, 'Drivers channel binding missing during cancellation');
       } else {
         try {
-          await telegram.deleteMessage(binding.chatId, order.channelMessageId);
+          await telegram.deleteMessage(ordersChannelId, order.channelMessageId);
         } catch (error) {
           logger.debug(
-            { err: error, orderId: order.id, chatId: binding.chatId, messageId: order.channelMessageId },
+            { err: error, orderId: order.id, chatId: ordersChannelId, messageId: order.channelMessageId },
             'Failed to delete drivers channel message for cancelled order',
           );
         }
@@ -555,8 +571,8 @@ export const publishOrderToDriversChannel = async (
   telegram: Telegram,
   orderId: number,
 ): Promise<PublishOrderResult> => {
-  const binding = await getChannelBinding(ORDERS_CHANNEL);
-  if (!binding) {
+  const chatId = await getOrdersChannelChatId();
+  if (!chatId) {
     logger.warn({ orderId }, 'Drivers channel is not configured, skipping publish');
     return { status: 'missing_channel' } satisfies PublishOrderResult;
   }
@@ -574,7 +590,7 @@ export const publishOrderToDriversChannel = async (
         if (order.channelMessageId) {
           orderStates.set(order.id, {
             orderId: order.id,
-            chatId: binding.chatId,
+            chatId,
             messageId: order.channelMessageId,
             baseText: messageText,
             status: mapOrderStatus(order),
@@ -586,7 +602,7 @@ export const publishOrderToDriversChannel = async (
         }
 
         const keyboard = buildActionKeyboard(order);
-        const message = await telegram.sendMessage(binding.chatId, messageText, {
+        const message = await telegram.sendMessage(chatId, messageText, {
           reply_markup: keyboard,
         });
 
@@ -594,7 +610,7 @@ export const publishOrderToDriversChannel = async (
 
         orderStates.set(order.id, {
           orderId: order.id,
-          chatId: binding.chatId,
+          chatId,
           messageId: message.message_id,
           baseText: messageText,
           status: 'pending',

@@ -72,10 +72,11 @@ are missing or blank.
   when the variables are omitted.
 - `SUB_WARN_HOURS_BEFORE` – Number of hours before expiry when reminder messages are
   sent. Defaults to 24 hours. The value must be a positive number.
-- `ORDERS_CHANNEL_ID` – Optional numeric identifier used to seed the orders channel
-  binding when `/bind_drivers_channel` has not been executed yet. Provide the full
-  chat ID (including the leading `-100` prefix for Telegram supergroups) to skip the
-  manual binding step during initial deployments.
+- `ORDERS_CHANNEL_ID` – Optional numeric identifier for the drivers/orders channel.
+  When set, the bot prefers this value over bindings stored in the database or
+  provided through `/bind_drivers_channel`. Provide the full chat ID (including the
+  leading `-100` prefix for Telegram supergroups) to skip the manual binding step
+  during initial deployments.
 - `DRIVERS_CHANNEL_INVITE` – Optional fallback invite link delivered to executors when
   an automatic invite cannot be created.
 

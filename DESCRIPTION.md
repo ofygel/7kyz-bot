@@ -205,7 +205,8 @@ LOG_LEVEL (info|warn|error).
 
 SAFE_MODE (true|false) — принудительный деградированный режим.
 
-ORDERS_CHANNEL_ID, VERIFY_CHANNEL_ID, STATS_CHANNEL_ID — если хотим задать без /bind.
+ORDERS_CHANNEL_ID — основной чат заказов (приоритетнее /bind_drivers_channel).
+VERIFY_CHANNEL_ID, STATS_CHANNEL_ID — если хотим задать без /bind.
 
 TZ = Asia/Almaty.
 
@@ -411,7 +412,8 @@ https://2gis.kz/<city>?m=<lon>,<lat>/18&q=<urlencoded address>
 
 VERIFY_CHANNEL_ID — модерация документов.
 
-ORDERS_CHANNEL_ID — лента заказов. Пост содержит: тип, город, ключевые поля, и кнопку «Взять».
+ORDERS_CHANNEL_ID — лента заказов. При наличии берётся напрямую из окружения без записи в
+таблицу `channels`. Пост содержит: тип, город, ключевые поля, и кнопку «Взять».
 
 STATS_CHANNEL_ID — стат‑канал для отчётности и трассировки ключевых событий:
 

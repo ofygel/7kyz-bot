@@ -83,49 +83,42 @@ const writeToCache = (type: ChannelType, value: ChannelBinding | null): void => 
   LAST_KNOWN_BINDINGS.set(type, value);
 };
 
-const FALLBACK_CHAT_IDS: Partial<Record<ChannelType, number>> = {
-  [ORDERS_CHANNEL]:
-    config.channels.ordersChannelId ?? config.subscriptions.payment.ordersChannelId,
-  [BIND_VERIFY_CHANNEL]: config.channels.bindVerifyChannelId,
-};
-
-const getConfiguredFallbackChatId = (type: ChannelType): number | null => {
-  const chatId = FALLBACK_CHAT_IDS[type];
-  return typeof chatId === 'number' ? chatId : null;
-};
-
-const persistFallbackBinding = async (
-  type: ChannelType,
-  chatId: number,
-): Promise<ChannelBinding> => {
-  const binding: ChannelBinding = { type, chatId };
-
-  try {
-    await saveChannelBinding(binding);
-  } catch (error) {
-    logger.error(
-      { err: error, type },
-      'Failed to persist fallback channel binding',
-    );
+const resolveConfiguredChatId = (type: ChannelType): number | null => {
+  switch (type) {
+    case ORDERS_CHANNEL: {
+      const configured =
+        config.channels.ordersChannelId ?? config.subscriptions.payment.ordersChannelId;
+      return typeof configured === 'number' ? configured : null;
+    }
+    case BIND_VERIFY_CHANNEL: {
+      const configured = config.channels.bindVerifyChannelId;
+      return typeof configured === 'number' ? configured : null;
+    }
+    default:
+      return null;
   }
-
-  writeToCache(type, binding);
-
-  return binding;
 };
 
-const ensureFallbackBinding = async (type: ChannelType): Promise<ChannelBinding | null> => {
-  const chatId = getConfiguredFallbackChatId(type);
-  if (chatId === null) {
-    return null;
-  }
-
-  return persistFallbackBinding(type, chatId);
+const getConfiguredBinding = (type: ChannelType): ChannelBinding | null => {
+  const chatId = resolveConfiguredChatId(type);
+  return chatId === null ? null : ({ type, chatId } satisfies ChannelBinding);
 };
 
 export const saveChannelBinding = async (
   binding: ChannelBinding,
 ): Promise<void> => {
+  const configured = getConfiguredBinding(binding.type);
+  if (configured) {
+    if (configured.chatId !== binding.chatId) {
+      throw new Error(
+        `Channel ${binding.type} is configured via environment variables and cannot be overridden`,
+      );
+    }
+
+    writeToCache(binding.type, configured);
+    return;
+  }
+
   const column = CHANNEL_COLUMNS[binding.type];
 
   await pool.query(
@@ -149,6 +142,12 @@ export const getChannelBinding = async (
     return cached;
   }
 
+  const configured = getConfiguredBinding(type);
+  if (configured) {
+    writeToCache(type, configured);
+    return configured;
+  }
+
   const column = CHANNEL_COLUMNS[type];
 
   let rows: ChannelsRow[];
@@ -168,36 +167,17 @@ export const getChannelBinding = async (
       QUERY_FAILURE_LOGGED.add(type);
     }
 
-    const lastKnown = LAST_KNOWN_BINDINGS.get(type);
-    if (lastKnown !== undefined) {
-      return lastKnown;
-    }
-
-    const fallback = await ensureFallbackBinding(type);
-    if (fallback) {
-      return fallback;
-    }
-
-    return null;
+    return LAST_KNOWN_BINDINGS.get(type) ?? null;
   }
 
   const [row] = rows;
   if (!row) {
-    const fallback = await ensureFallbackBinding(type);
-    if (fallback) {
-      return fallback;
-    }
-
+    writeToCache(type, null);
     return null;
   }
 
   const value = row[column];
   if (value === null || value === undefined) {
-    const fallback = await ensureFallbackBinding(type);
-    if (fallback) {
-      return fallback;
-    }
-
     writeToCache(type, null);
     return null;
   }

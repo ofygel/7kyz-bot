@@ -35,6 +35,7 @@ env:
     value: ""
   - name: ORDERS_CHANNEL_ID
     value: ""
+    # Primary orders/drivers channel binding; overrides /bind_drivers_channel.
 ingress:
   enabled: false
   className: ""
