@@ -29,17 +29,8 @@ import {
   type SessionKey,
   type SessionScope,
 } from '../../db';
-import {
-  getChannelBinding,
-  BIND_VERIFY_CHANNEL,
-  ORDERS_CHANNEL,
-} from '../channels/bindings';
+import { BIND_VERIFY_CHANNEL } from '../channels/bindings';
 import { getExecutorRoleCopy } from '../copy';
-import { EXECUTOR_ORDERS_ACTION } from '../flows/executor/menu';
-import {
-  createTrialSubscription,
-  TrialSubscriptionUnavailableError,
-} from '../../db/subscriptions';
 
 const DEFAULT_TITLE = '🛡️ Заявка на верификацию исполнителя';
 const DEFAULT_REASONS = [
@@ -47,27 +38,6 @@ const DEFAULT_REASONS = [
   'Данные не совпадают',
   'Не подходит',
 ];
-const DEFAULT_VERIFICATION_TRIAL_DAYS = 2;
-
-const formatTrialDays = (days: number): string => {
-  const absolute = Math.abs(days);
-  const lastTwo = absolute % 100;
-  if (lastTwo >= 11 && lastTwo <= 14) {
-    return `${days} дней`;
-  }
-
-  const lastDigit = absolute % 10;
-  if (lastDigit === 1) {
-    return `${days} день`;
-  }
-
-  if (lastDigit >= 2 && lastDigit <= 4) {
-    return `${days} дня`;
-  }
-
-  return `${days} дней`;
-};
-
 const formatDateTime = (value?: Date | number | string): string | undefined => {
   if (!value) {
     return undefined;
@@ -292,146 +262,29 @@ const resetVerificationSessionState = async (
   });
 };
 
-const buildTrialApprovalKeyboard = (): InlineKeyboardMarkup =>
-  Markup.inlineKeyboard([[Markup.button.callback('Заказы', EXECUTOR_ORDERS_ACTION)]]).reply_markup;
+const buildSupportApprovalKeyboard = (): InlineKeyboardMarkup =>
+  Markup.inlineKeyboard([
+    [Markup.button.url('Написать в поддержку', config.support.url)],
+  ]).reply_markup;
 
 const buildFallbackApprovalNotification = (
   application: VerificationApplication,
 ): { text: string; keyboard: InlineKeyboardMarkup } => {
+  const supportMention = config.support.mention;
   const copy = getExecutorRoleCopy(application.role);
-  const periodLabel = formatTrialDays(DEFAULT_VERIFICATION_TRIAL_DAYS);
-  const text = [
+  const lines = [
     '✅ Документы подтверждены.',
-    `Мы активировали для вас бесплатный доступ на ${periodLabel}.`,
-    `Как только ссылка на канал ${copy.genitive} будет доступна, мы отправим её дополнительно.`,
-    'Если потребуется помощь, напишите в поддержку.',
-  ].join('\n');
+    `Чтобы получить доступ, напишите в поддержку ${supportMention}.`,
+    `Команда поможет подключить доступ к заказам ${copy.genitive}.`,
+  ];
 
-  const keyboard = buildTrialApprovalKeyboard();
+  const keyboard = buildSupportApprovalKeyboard();
 
-  return { text, keyboard };
-};
-
-interface VerificationTrialDependencies {
-  getChannelBinding: typeof getChannelBinding;
-  createTrialSubscription: typeof createTrialSubscription;
-}
-
-const defaultVerificationTrialDependencies: VerificationTrialDependencies = {
-  getChannelBinding,
-  createTrialSubscription,
-};
-
-const verificationTrialDependencies: VerificationTrialDependencies = {
-  ...defaultVerificationTrialDependencies,
-};
-
-const activateVerificationTrial = async (
-  application: VerificationApplication,
-): Promise<{ text: string; keyboard?: InlineKeyboardMarkup } | null> => {
-  const applicantId = application.applicant.telegramId;
-  if (!applicantId) {
-    return null;
-  }
-
-  const binding = await verificationTrialDependencies.getChannelBinding(ORDERS_CHANNEL);
-  let inviteAvailable = true;
-
-  if (!binding) {
-    inviteAvailable = false;
-    const fallbackChatId = config.subscriptions.payment.ordersChannelId;
-
-    if (!fallbackChatId) {
-      logger.warn(
-        { applicationId: application.id, applicantId },
-        'Drivers channel binding missing during verification trial activation',
-      );
-    } else {
-      logger.warn(
-        { applicationId: application.id, applicantId, fallbackChatId },
-        'Drivers channel binding missing, using configured fallback chat id for verification trial',
-      );
-    }
-  }
-
-  try {
-    const trial = await verificationTrialDependencies.createTrialSubscription({
-      telegramId: applicantId,
-      username: application.applicant.username ?? undefined,
-      firstName: application.applicant.firstName ?? undefined,
-      lastName: application.applicant.lastName ?? undefined,
-      phone: application.applicant.phone ?? undefined,
-      executorKind: application.role,
-      chatId: binding?.chatId ?? config.subscriptions.payment.ordersChannelId,
-      trialDays: DEFAULT_VERIFICATION_TRIAL_DAYS,
-      currency: config.subscriptions.prices.currency,
-    });
-
-    logger.info(
-      {
-        applicationId: application.id,
-        applicantId,
-        subscriptionId: trial.subscriptionId,
-        expiresAt: trial.expiresAt.toISOString(),
-      },
-      'Verification trial subscription activated during approval',
-    );
-
-    const copy = getExecutorRoleCopy(application.role);
-    const periodLabel = formatTrialDays(DEFAULT_VERIFICATION_TRIAL_DAYS);
-    const expiresLabel = formatDateTime(trial.expiresAt);
-    const lines = [
-      '✅ Документы подтверждены.',
-      `Мы активировали для вас бесплатный доступ на ${periodLabel}.`,
-    ];
-
-    if (expiresLabel) {
-      lines.push(`Доступ действует до ${expiresLabel}.`);
-    }
-
-    if (inviteAvailable && binding) {
-      lines.push(`Нажмите кнопку ниже, чтобы получить ссылку на канал ${copy.genitive}.`);
-    } else {
-      lines.push(`Мы сообщим вам отдельно, когда ссылка на канал ${copy.genitive} будет готова.`);
-    }
-    lines.push('Если потребуется помощь, напишите в поддержку.');
-
-    const keyboard = inviteAvailable && binding ? buildTrialApprovalKeyboard() : undefined;
-
-    return { text: lines.join('\n'), keyboard };
-  } catch (error) {
-    if (error instanceof TrialSubscriptionUnavailableError) {
-      logger.info(
-        {
-          applicationId: application.id,
-          applicantId,
-          reason: error.reason,
-        },
-        'Verification trial unavailable during approval',
-      );
-    } else {
-      logger.error(
-        { err: error, applicationId: application.id, applicantId },
-        'Failed to activate verification trial during approval',
-      );
-    }
-
-    return null;
-  }
+  return { text: lines.join('\n'), keyboard };
 };
 
 export const __testing = {
-  activateVerificationTrial,
-  setTrialDependencies: (
-    overrides: Partial<VerificationTrialDependencies>,
-  ): void => {
-    verificationTrialDependencies.getChannelBinding =
-      overrides.getChannelBinding ?? defaultVerificationTrialDependencies.getChannelBinding;
-
-    verificationTrialDependencies.createTrialSubscription =
-      overrides.createTrialSubscription ??
-      defaultVerificationTrialDependencies.createTrialSubscription;
-  },
+  buildFallbackApprovalNotification,
 };
 
 export const notifyVerificationApproval = async (
@@ -444,31 +297,10 @@ export const notifyVerificationApproval = async (
   }
 
   const fallback = buildFallbackApprovalNotification(application);
-  const trialNotification = await activateVerificationTrial(application);
-
-  let text: string;
-  let keyboard: InlineKeyboardMarkup | undefined;
-
-  if (trialNotification) {
-    text = trialNotification.text;
-    keyboard = trialNotification.keyboard;
-  } else {
-    const notification = application.approvalNotification;
-    const customText = notification?.text?.trim();
-
-    if (customText) {
-      text = customText;
-      keyboard = notification?.keyboard;
-    } else {
-      text = fallback.text;
-      keyboard = fallback.keyboard;
-    }
-  }
-
-  const replyMarkup = keyboard ?? fallback.keyboard;
+  const { text, keyboard } = fallback;
 
   try {
-    await telegram.sendMessage(applicantId, text, { reply_markup: replyMarkup });
+    await telegram.sendMessage(applicantId, text, { reply_markup: keyboard });
   } catch (error) {
     logger.error(
       { err: error, applicationId: application.id, applicantId },
