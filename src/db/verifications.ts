@@ -256,10 +256,6 @@ const applyVerificationDecision = async (
         UPDATE users
         SET verify_status = $2,
             verified_at = CASE WHEN $2 = 'active' THEN now() ELSE verified_at END,
-            trial_started_at = CASE
-              WHEN $2 = 'active' AND trial_started_at IS NULL THEN now()
-              ELSE trial_started_at
-            END,
             updated_at = now()
         WHERE tg_id = $1
       `,

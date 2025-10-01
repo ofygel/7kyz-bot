@@ -34,7 +34,6 @@ interface SubscriptionIdentity extends UserIdentity {
   shortId?: string;
   subscriptionStatus?: UserSubscriptionStatus;
   subscriptionExpiresAt?: Date | number | string;
-  trialExpiresAt?: Date | number | string;
   hasActiveOrder?: boolean;
 }
 
@@ -106,7 +105,6 @@ const formatSubscriptionStatus = (
 
   const labels: Record<UserSubscriptionStatus, string> = {
     none: 'нет подписки',
-    trial: 'пробный период',
     active: 'активна',
     grace: 'льготный период',
     expired: 'истекла',
@@ -125,8 +123,7 @@ const appendSubscriptionDetails = (
     lines.push(`Статус: ${statusLabel}`);
   }
 
-  const expiresSource =
-    subscriber.subscriptionExpiresAt ?? subscriber.trialExpiresAt ?? fallbackExpiresAt;
+  const expiresSource = subscriber.subscriptionExpiresAt ?? fallbackExpiresAt;
   const expiresLabel = formatDateTime(expiresSource);
   if (expiresLabel) {
     lines.push(`Доступ до: ${expiresLabel}`);

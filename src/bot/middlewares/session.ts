@@ -17,6 +17,7 @@ import { isAppCity } from '../../domain/cities';
 import {
   EXECUTOR_ROLES,
   EXECUTOR_VERIFICATION_PHOTO_COUNT,
+  type AuthExecutorPlan,
   type AuthStateSnapshot,
   type BotContext,
   type ClientFlowState,
@@ -128,7 +129,6 @@ const VERIFY_STATUSES: readonly UserVerifyStatus[] = [
 
 const SUBSCRIPTION_STATUSES: readonly UserSubscriptionStatus[] = [
   'none',
-  'trial',
   'active',
   'grace',
   'expired',
@@ -161,9 +161,8 @@ const createAuthSnapshot = (): AuthStateSnapshot => ({
     isVerified: false,
   },
   isModerator: false,
-  trialStartedAt: undefined,
-  trialExpiresAt: undefined,
   subscriptionExpiresAt: undefined,
+  executorPlan: undefined,
   city: undefined,
   hasActiveOrder: false,
   stale: false,
@@ -210,11 +209,15 @@ const rebuildAuthSnapshot = (value: unknown, sessionUser?: SessionUser): AuthSta
     snapshot.verifyStatus = candidate.verifyStatus as UserVerifyStatus;
   }
 
+  const candidateSubscriptionStatus = (candidate as { subscriptionStatus?: unknown })
+    .subscriptionStatus;
   if (
-    typeof candidate.subscriptionStatus === 'string'
-    && SUBSCRIPTION_STATUSES.includes(candidate.subscriptionStatus as UserSubscriptionStatus)
+    typeof candidateSubscriptionStatus === 'string'
+    && SUBSCRIPTION_STATUSES.includes(candidateSubscriptionStatus as UserSubscriptionStatus)
   ) {
-    snapshot.subscriptionStatus = candidate.subscriptionStatus as UserSubscriptionStatus;
+    snapshot.subscriptionStatus = candidateSubscriptionStatus as UserSubscriptionStatus;
+  } else if (candidateSubscriptionStatus === 'trial') {
+    snapshot.subscriptionStatus = 'active';
   }
 
   if (typeof candidate.isModerator === 'boolean') {
@@ -265,19 +268,30 @@ const rebuildAuthSnapshot = (value: unknown, sessionUser?: SessionUser): AuthSta
     snapshot.city = candidate.city;
   }
 
-  if ('trialStartedAt' in candidate) {
-    const value = (candidate as { trialStartedAt?: unknown }).trialStartedAt;
-    const parsed = normaliseSnapshotDate(value);
-    if (parsed) {
-      snapshot.trialStartedAt = parsed;
-    }
-  }
+  if ('executorPlan' in candidate) {
+    const value = (candidate as { executorPlan?: unknown }).executorPlan;
+    if (value && typeof value === 'object') {
+      const planCandidate = value as Partial<AuthExecutorPlan>;
+      const id =
+        typeof planCandidate.id === 'number' && Number.isFinite(planCandidate.id)
+          ? Math.trunc(planCandidate.id)
+          : undefined;
+      const planChoice =
+        typeof planCandidate.planChoice === 'string' ? planCandidate.planChoice : undefined;
+      const status =
+        typeof planCandidate.status === 'string' ? planCandidate.status : undefined;
+      const startAt = normaliseSnapshotDate(planCandidate.startAt);
+      const endsAt = normaliseSnapshotDate(planCandidate.endsAt);
 
-  if ('trialExpiresAt' in candidate) {
-    const value = (candidate as { trialExpiresAt?: unknown }).trialExpiresAt;
-    const parsed = normaliseSnapshotDate(value);
-    if (parsed) {
-      snapshot.trialExpiresAt = parsed;
+      if (id !== undefined && planChoice && status && startAt && endsAt) {
+        snapshot.executorPlan = {
+          id,
+          planChoice: planChoice as AuthExecutorPlan['planChoice'],
+          status: status as AuthExecutorPlan['status'],
+          startAt,
+          endsAt,
+        } satisfies AuthExecutorPlan;
+      }
     }
   }
 
@@ -303,7 +317,7 @@ const rebuildAuthSnapshot = (value: unknown, sessionUser?: SessionUser): AuthSta
     snapshot.userIsVerified = true;
   }
 
-  if (['trial', 'active', 'grace'].includes(snapshot.subscriptionStatus)) {
+  if (['active', 'grace'].includes(snapshot.subscriptionStatus)) {
     snapshot.executor.hasActiveSubscription = true;
   }
 

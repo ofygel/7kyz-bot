@@ -63,26 +63,28 @@ const formatVerificationStatus = (user: AuthUser): string => {
 };
 
 const formatSubscriptionStatus = (user: AuthUser): string => {
-  const expiryCandidate = isValidDate(user.subscriptionExpiresAt)
+  const plan = user.activeExecutorPlan;
+  const subscriptionExpiry = isValidDate(user.subscriptionExpiresAt)
     ? user.subscriptionExpiresAt
     : undefined;
-  const trialExpiry = isValidDate(user.trialExpiresAt) ? user.trialExpiresAt : undefined;
+  const planExpiry = plan && isValidDate(plan.endsAt) ? plan.endsAt : undefined;
+
+  if (plan && plan.planChoice === 'trial' && plan.status === 'active') {
+    const deadline = formatDeadline(planExpiry ?? subscriptionExpiry);
+    return deadline ? `пробный доступ до ${deadline}` : 'пробный доступ активен';
+  }
 
   switch (user.subscriptionStatus) {
-    case 'trial': {
-      const deadline = formatDeadline(trialExpiry ?? expiryCandidate);
-      return deadline ? `пробный доступ до ${deadline}` : 'пробный доступ активен';
-    }
     case 'active': {
-      const deadline = formatDeadline(expiryCandidate);
+      const deadline = formatDeadline(planExpiry ?? subscriptionExpiry);
       return deadline ? `активна до ${deadline}` : 'активна';
     }
     case 'grace': {
-      const deadline = formatDeadline(expiryCandidate);
+      const deadline = formatDeadline(planExpiry ?? subscriptionExpiry);
       return deadline ? `период продления до ${deadline}` : 'период продления';
     }
     case 'expired': {
-      const deadline = formatDeadline(expiryCandidate ?? trialExpiry);
+      const deadline = formatDeadline(subscriptionExpiry ?? planExpiry);
       return deadline ? `истекла ${deadline}` : 'истекла';
     }
     case 'none':
@@ -92,15 +94,23 @@ const formatSubscriptionStatus = (user: AuthUser): string => {
 };
 
 const formatTrialStatus = (user: AuthUser): string => {
-  const started = isValidDate(user.trialStartedAt);
-  const expires = isValidDate(user.trialExpiresAt) ? user.trialExpiresAt : undefined;
-
-  if (!started && !expires) {
+  const plan = user.activeExecutorPlan;
+  if (!plan || plan.planChoice !== 'trial') {
     return 'не активирован';
   }
 
+  if (plan.status === 'blocked') {
+    return 'приостановлен';
+  }
+
+  const expires = isValidDate(plan.endsAt)
+    ? plan.endsAt
+    : isValidDate(user.subscriptionExpiresAt)
+      ? user.subscriptionExpiresAt
+      : undefined;
+
   if (!expires) {
-    return 'активен';
+    return plan.status === 'active' ? 'активен' : 'не активен';
   }
 
   if (expires.getTime() <= Date.now()) {

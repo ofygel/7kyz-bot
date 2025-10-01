@@ -42,6 +42,7 @@ const createContext = (userOverrides = {}) => {
     isVerified: false,
     isBlocked: false,
     citySelected: 'almaty',
+    activeExecutorPlan: undefined,
     hasActiveOrder: false,
     keyboardNonce: 'nonce1',
   };
@@ -68,9 +69,14 @@ test('buildProfileCardText enriches client profile with statuses and metrics', (
 
   const ctx = createContext({
     verifyStatus: 'pending',
-    subscriptionStatus: 'trial',
-    trialStartedAt: new Date('2030-01-01T00:00:00Z'),
-    trialExpiresAt,
+    subscriptionStatus: 'active',
+    activeExecutorPlan: {
+      id: 101,
+      planChoice: 'trial',
+      status: 'active',
+      startAt: new Date('2030-01-01T00:00:00Z'),
+      endsAt: trialExpiresAt,
+    },
     subscriptionExpiresAt,
     performanceMetrics: {
       ordersCompleted: 12,
@@ -137,8 +143,13 @@ test('buildProfileCardText surfaces executor metrics and navigation', () => {
     verifiedAt: new Date('2024-02-01T00:00:00Z'),
     subscriptionStatus: 'active',
     subscriptionExpiresAt: new Date('2030-02-10T00:00:00Z'),
-    trialStartedAt: new Date('2020-01-01T00:00:00Z'),
-    trialExpiresAt: new Date('2020-01-10T00:00:00Z'),
+    activeExecutorPlan: {
+      id: 202,
+      planChoice: 'trial',
+      status: 'completed',
+      startAt: new Date('2020-01-01T00:00:00Z'),
+      endsAt: new Date('2020-01-10T00:00:00Z'),
+    },
     hasActiveOrder: true,
     performance: {
       rating: 4.8,

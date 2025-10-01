@@ -32,8 +32,6 @@ export interface UpdateUserSubscriptionStatusParams {
   client?: PoolClient;
   subscriptionStatus?: UserSubscriptionStatus;
   subscriptionExpiresAt?: Date | null;
-  trialStartedAt?: Date | null;
-  trialExpiresAt?: Date | null;
   hasActiveOrder?: boolean | null;
   status?: UserStatus;
   updatedAt?: Date;
@@ -199,8 +197,6 @@ export const updateUserSubscriptionStatus = async ({
   client,
   subscriptionStatus,
   subscriptionExpiresAt,
-  trialStartedAt,
-  trialExpiresAt,
   hasActiveOrder,
   status,
   updatedAt,
@@ -218,18 +214,6 @@ export const updateUserSubscriptionStatus = async ({
   if (subscriptionExpiresAt !== undefined) {
     assignments.push(`sub_expires_at = $${index}`);
     values.push(subscriptionExpiresAt);
-    index += 1;
-  }
-
-  if (trialStartedAt !== undefined) {
-    assignments.push(`trial_started_at = $${index}`);
-    values.push(trialStartedAt);
-    index += 1;
-  }
-
-  if (trialExpiresAt !== undefined) {
-    assignments.push(`trial_expires_at = $${index}`);
-    values.push(trialExpiresAt);
     index += 1;
   }
 

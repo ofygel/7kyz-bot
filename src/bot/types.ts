@@ -2,6 +2,7 @@ import type { Context } from 'telegraf';
 
 import type {
   ExecutorPlanChoice,
+  ExecutorPlanStatus,
   OrderLocation,
   OrderPriceDetails,
 } from '../types';
@@ -21,7 +22,15 @@ export type UserRole = 'guest' | 'client' | 'executor' | 'moderator';
 
 export type UserVerifyStatus = 'none' | 'pending' | 'active' | 'rejected' | 'expired';
 
-export type UserSubscriptionStatus = 'none' | 'trial' | 'active' | 'grace' | 'expired';
+export type UserSubscriptionStatus = 'none' | 'active' | 'grace' | 'expired';
+
+export interface AuthExecutorPlan {
+  id: number;
+  planChoice: ExecutorPlanChoice;
+  status: ExecutorPlanStatus;
+  startAt: Date;
+  endsAt: Date;
+}
 
 export interface SessionUser {
   id: number;
@@ -69,9 +78,8 @@ export interface AuthUser {
   isBlocked: boolean;
   citySelected?: AppCity;
   verifiedAt?: Date;
-  trialStartedAt?: Date;
-  trialExpiresAt?: Date;
   subscriptionExpiresAt?: Date;
+  activeExecutorPlan?: AuthExecutorPlan;
   hasActiveOrder: boolean;
   lastMenuRole?: UserMenuRole;
   keyboardNonce?: string;
@@ -101,9 +109,8 @@ export interface AuthStateSnapshot {
   userIsVerified: boolean;
   executor: AuthExecutorState;
   isModerator: boolean;
-  trialStartedAt?: Date;
-  trialExpiresAt?: Date;
   subscriptionExpiresAt?: Date;
+  executorPlan?: AuthExecutorPlan;
   city?: AppCity;
   hasActiveOrder: boolean;
   stale: boolean;

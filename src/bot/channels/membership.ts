@@ -81,7 +81,6 @@ export const registerMembershipSync = (
         telegramId: userId,
         subscriptionStatus: 'expired',
         subscriptionExpiresAt,
-        trialExpiresAt: null,
         hasActiveOrder: false,
         status: 'trial_expired',
         updatedAt: endedAt,

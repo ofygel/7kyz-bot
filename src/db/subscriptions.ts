@@ -505,8 +505,6 @@ export const activateSubscription = async (
       telegramId,
       subscriptionStatus: 'active',
       subscriptionExpiresAt: periodEnd,
-      trialStartedAt: null,
-      trialExpiresAt: null,
       status: 'active_executor',
       updatedAt: submittedAt,
     });
@@ -620,10 +618,8 @@ export const createTrialSubscription = async (
       await updateUserSubscriptionStatus({
         client,
         telegramId,
-        subscriptionStatus: 'trial',
+        subscriptionStatus: 'active',
         subscriptionExpiresAt: nextBillingAt,
-        trialStartedAt: now,
-        trialExpiresAt: nextBillingAt,
         status: 'active_executor',
         updatedAt: now,
       });
@@ -697,10 +693,8 @@ export const createTrialSubscription = async (
     await updateUserSubscriptionStatus({
       client,
       telegramId,
-      subscriptionStatus: 'trial',
+      subscriptionStatus: 'active',
       subscriptionExpiresAt: nextBillingAt,
-      trialStartedAt: now,
-      trialExpiresAt: nextBillingAt,
       status: 'active_executor',
       updatedAt: now,
     });

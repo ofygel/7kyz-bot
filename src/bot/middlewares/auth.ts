@@ -1,12 +1,14 @@
 import type { MiddlewareFn } from 'telegraf';
 
 import { logger } from '../../config';
-import { hasUsersCitySelectedColumn, pool } from '../../db';
+import { findActiveExecutorPlanByPhone, hasUsersCitySelectedColumn, pool } from '../../db';
 import { isAppCity } from '../../domain/cities';
 import { copy } from '../copy';
 import { enterSafeMode } from '../services/cleanup';
+import type { ExecutorPlanRecord } from '../../types';
 import {
   EXECUTOR_ROLES,
+  type AuthExecutorPlan,
   type AuthExecutorState,
   type AuthState,
   type AuthStateSnapshot,
@@ -50,8 +52,6 @@ interface AuthQueryRow {
   has_active_order?: boolean | null;
   city_selected?: string | null;
   verified_at?: string | Date | null;
-  trial_started_at?: string | Date | null;
-  trial_expires_at?: string | Date | null;
   last_menu_role?: string | null;
   keyboard_nonce?: string | null;
 }
@@ -117,11 +117,12 @@ const normaliseVerifyStatus = (value: Nullable<string>): UserVerifyStatus => {
 
 const normaliseSubscriptionStatus = (value: Nullable<string>): UserSubscriptionStatus => {
   switch (value) {
-    case 'trial':
     case 'active':
     case 'grace':
     case 'expired':
       return value;
+    case 'trial':
+      return 'active';
     case 'none':
     default:
       return 'none';
@@ -179,7 +180,15 @@ const buildVerifiedMap = (row: AuthQueryRow): Record<ExecutorRole, boolean> => (
 });
 
 const isSubscriptionActive = (status: UserSubscriptionStatus): boolean =>
-  status === 'active' || status === 'trial' || status === 'grace';
+  status === 'active' || status === 'grace';
+
+const mapExecutorPlan = (plan: ExecutorPlanRecord): AuthExecutorPlan => ({
+  id: plan.id,
+  planChoice: plan.planChoice,
+  status: plan.status,
+  startAt: plan.startAt,
+  endsAt: plan.endsAt,
+});
 
 const buildExecutorState = (row: AuthQueryRow): AuthExecutorState => {
   const verifiedRoles = buildVerifiedMap(row);
@@ -220,6 +229,22 @@ const cloneExecutorState = (executor: AuthExecutorState): AuthExecutorState => (
   isVerified: executor.isVerified,
 });
 
+const cloneAuthExecutorPlan = (
+  plan: AuthExecutorPlan | undefined,
+): AuthExecutorPlan | undefined => {
+  if (!plan) {
+    return undefined;
+  }
+
+  return {
+    id: plan.id,
+    planChoice: plan.planChoice,
+    status: plan.status,
+    startAt: new Date(plan.startAt),
+    endsAt: new Date(plan.endsAt),
+  } satisfies AuthExecutorPlan;
+};
+
 interface SnapshotHydrationOptions {
   restoreRole?: boolean;
 }
@@ -256,10 +281,10 @@ const buildAuthStateFromSnapshot = (
   const userVerifiedFromSnapshot = snapshot.userIsVerified || snapshot.executor.isVerified;
   const snapshotVerified = snapshot.verifyStatus === 'active';
   base.user.isVerified = Boolean(snapshotVerified || userVerifiedFromSnapshot || base.user.isVerified);
-  base.user.trialStartedAt = snapshot.trialStartedAt ?? base.user.trialStartedAt;
-  base.user.trialExpiresAt = snapshot.trialExpiresAt ?? base.user.trialExpiresAt;
   base.user.subscriptionExpiresAt =
     snapshot.subscriptionExpiresAt ?? base.user.subscriptionExpiresAt;
+  base.user.activeExecutorPlan =
+    cloneAuthExecutorPlan(snapshot.executorPlan) ?? base.user.activeExecutorPlan;
   base.user.hasActiveOrder = snapshot.hasActiveOrder ?? base.user.hasActiveOrder;
   base.user.citySelected = snapshot.city ?? base.user.citySelected;
   base.executor = cloneExecutorState(snapshot.executor);
@@ -351,8 +376,6 @@ const buildAuthQuery = (includeCitySelected: boolean): string => `
           has_active_order,
           is_blocked${includeCitySelected ? ',\n          city_selected' : ''},
           verified_at,
-          trial_started_at,
-          trial_expires_at,
           last_menu_role,
           keyboard_nonce
       )
@@ -372,8 +395,6 @@ const buildAuthQuery = (includeCitySelected: boolean): string => `
         u.has_active_order,
         u.is_blocked${includeCitySelected ? ',\n        u.city_selected' : ''},
         u.verified_at,
-        u.trial_started_at,
-        u.trial_expires_at,
         u.last_menu_role,
         u.keyboard_nonce,
         COALESCE(cv.is_verified, false) AS courier_verified,
@@ -401,7 +422,7 @@ const buildAuthQuery = (includeCitySelected: boolean): string => `
       ) dv ON true
     `;
 
-const mapAuthRow = (row: AuthQueryRow): AuthState => {
+const mapAuthRow = async (row: AuthQueryRow): Promise<AuthState> => {
   const telegramId = parseNumericId(row.tg_id);
   const executor = buildExecutorState(row);
   let role = normaliseRole(row.role);
@@ -411,6 +432,7 @@ const mapAuthRow = (row: AuthQueryRow): AuthState => {
   const subscriptionStatus = normaliseSubscriptionStatus(row.sub_status);
   const status = deriveUserStatus(row, normaliseStatus(row.status), isModerator);
   const lastMenuRole = normaliseMenuRole(row.last_menu_role);
+  const phone = normaliseString(row.phone);
 
   if (role === 'client') {
     const awaitingActivation =
@@ -432,11 +454,25 @@ const mapAuthRow = (row: AuthQueryRow): AuthState => {
   }
 
   const verifiedAt = parseTimestamp(row.verified_at);
-  const trialStartedAt = parseTimestamp(row.trial_started_at);
-  const trialExpiresAt = parseTimestamp(row.trial_expires_at);
   const subscriptionExpiresAt = parseTimestamp(row.sub_expires_at);
   const isVerified = verifyStatus === 'active' || executor.isVerified;
   const hasActiveOrder = Boolean(row.has_active_order);
+  let activeExecutorPlan: AuthExecutorPlan | undefined;
+
+  if (phone) {
+    try {
+      const plan = await findActiveExecutorPlanByPhone(phone);
+      if (plan) {
+        activeExecutorPlan = mapExecutorPlan(plan);
+      }
+    } catch (error) {
+      logger.error({ err: error, telegramId }, 'Failed to load active executor plan for user');
+    }
+  }
+
+  if (activeExecutorPlan?.status === 'active') {
+    executor.hasActiveSubscription = true;
+  }
 
   return {
     user: {
@@ -444,7 +480,7 @@ const mapAuthRow = (row: AuthQueryRow): AuthState => {
       username: normaliseString(row.username),
       firstName: normaliseString(row.first_name),
       lastName: normaliseString(row.last_name),
-      phone: normaliseString(row.phone),
+      phone,
       phoneVerified: Boolean(row.phone_verified),
       role,
       executorKind,
@@ -457,9 +493,8 @@ const mapAuthRow = (row: AuthQueryRow): AuthState => {
         ? row.city_selected
         : undefined,
       verifiedAt,
-      trialStartedAt,
-      trialExpiresAt,
       subscriptionExpiresAt,
+      activeExecutorPlan,
       hasActiveOrder,
       lastMenuRole,
       keyboardNonce: normaliseString(row.keyboard_nonce),
@@ -516,9 +551,8 @@ const createGuestAuthState = (from: NonNullable<BotContext['from']>): AuthState 
     subscriptionStatus: 'none',
     isVerified: false,
     isBlocked: false,
-    trialStartedAt: undefined,
-    trialExpiresAt: undefined,
     subscriptionExpiresAt: undefined,
+    activeExecutorPlan: undefined,
     hasActiveOrder: false,
     lastMenuRole: undefined,
     keyboardNonce: undefined,
@@ -573,9 +607,8 @@ const applyAuthState = (
     userIsVerified: authState.user.isVerified,
     executor: cloneExecutorState(authState.executor),
     isModerator: authState.isModerator,
-    trialStartedAt: authState.user.trialStartedAt,
-    trialExpiresAt: authState.user.trialExpiresAt,
     subscriptionExpiresAt: authState.user.subscriptionExpiresAt,
+    executorPlan: authState.user.activeExecutorPlan,
     city: authState.user.citySelected,
     hasActiveOrder: authState.user.hasActiveOrder,
     stale: options?.isStale ?? false,
@@ -676,9 +709,8 @@ export const auth = (): MiddlewareFn<BotContext> => async (ctx, next) => {
           userIsVerified: cachedSnapshot.userIsVerified,
           executor: cloneExecutorState(cachedSnapshot.executor),
           isModerator: snapshotIsModerator,
-          trialStartedAt: cachedSnapshot.trialStartedAt,
-          trialExpiresAt: cachedSnapshot.trialExpiresAt,
           subscriptionExpiresAt: cachedSnapshot.subscriptionExpiresAt,
+          executorPlan: cloneAuthExecutorPlan(cachedSnapshot.executorPlan),
           city: cachedSnapshot.city,
           hasActiveOrder: cachedSnapshot.hasActiveOrder ?? false,
           stale: true,

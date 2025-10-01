@@ -251,7 +251,6 @@ const processExpiredSubscriptions = async (
         telegramId: subscription.telegramId,
         subscriptionStatus: 'expired',
         subscriptionExpiresAt: subscription.expiresAt,
-        trialExpiresAt: null,
         hasActiveOrder: false,
         status: 'trial_expired',
         updatedAt: now,
