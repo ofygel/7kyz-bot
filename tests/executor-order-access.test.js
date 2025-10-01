@@ -259,3 +259,76 @@ test('processOrderAction falls back to cached executor access when database is u
     ordersDb.tryClaimOrder = originalTryClaimOrder;
   }
 });
+
+test('refreshExecutorOrderAccessCacheForPlan immediately toggles executor access state', async () => {
+  const redisModule = require('../src/infra/redis');
+  const accessCacheModule = require('../src/services/executorPlans/accessCache');
+  const executorAccessModule = require('../src/bot/services/executorAccess');
+  const dbClient = require('../src/db/client');
+
+  const mockRedis = createMockRedis();
+  const originalGetRedisClient = redisModule.getRedisClient;
+  redisModule.getRedisClient = () => mockRedis;
+
+  const originalPoolQuery = dbClient.pool.query;
+
+  const executorId = 112233;
+  const phone = '+77019998877';
+  const mainCacheKey = `executor-access:${executorId}`;
+
+  let dbCalls = 0;
+
+  try {
+    dbClient.pool.query = async () => {
+      dbCalls += 1;
+      return { rows: [{ phone, is_blocked: false }] };
+    };
+
+    await accessCacheModule.refreshExecutorOrderAccessCacheForPlan({
+      id: 900,
+      chatId: executorId,
+      phone,
+      status: 'active',
+    });
+
+    let hasAccess = await executorAccessModule.hasExecutorOrderAccess(executorId);
+    assert.equal(hasAccess, true);
+
+    await accessCacheModule.refreshExecutorOrderAccessCacheForPlan({
+      id: 900,
+      chatId: executorId,
+      phone,
+      status: 'blocked',
+    });
+
+    const blockedSnapshot = await mockRedis.get(mainCacheKey);
+    assert(blockedSnapshot, 'cache should be available after blocking');
+    assert.equal(JSON.parse(blockedSnapshot).isBlocked, true);
+
+    hasAccess = await executorAccessModule.hasExecutorOrderAccess(executorId);
+    assert.equal(hasAccess, false);
+
+    await accessCacheModule.refreshExecutorOrderAccessCacheForPlan({
+      id: 900,
+      chatId: executorId,
+      phone,
+      status: 'active',
+    });
+
+    const activeSnapshot = await mockRedis.get(mainCacheKey);
+    assert(activeSnapshot, 'cache should be updated after unblocking');
+    assert.equal(JSON.parse(activeSnapshot).isBlocked, false);
+
+    hasAccess = await executorAccessModule.hasExecutorOrderAccess(executorId);
+    assert.equal(hasAccess, true);
+
+    const mainSetCalls = mockRedis.setCalls.filter((call) => call.key === mainCacheKey);
+    assert(mainSetCalls.length >= 1, 'main cache should be written at least once');
+    assert.equal(mainSetCalls[mainSetCalls.length - 1].ttl, 60);
+
+    assert.equal(dbCalls, 0, 'database should not be queried when cache is refreshed');
+  } finally {
+    redisModule.getRedisClient = originalGetRedisClient;
+    dbClient.pool.query = originalPoolQuery;
+  }
+});

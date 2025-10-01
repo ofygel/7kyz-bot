@@ -223,6 +223,41 @@ export const updateCachedExecutorAccess = async (
   await mergeExecutorAccessSnapshot(executorId, patch, options);
 };
 
+const deleteExecutorAccessCacheKey = async (
+  client: NonNullable<ReturnType<typeof getRedisClient>>,
+  key: string,
+): Promise<void> => {
+  try {
+    await client.del(key);
+  } catch (error) {
+    logger.warn({ err: error, key }, 'Failed to delete executor access cache key');
+  }
+};
+
+export const clearExecutorOrderAccessCache = async (executorId: number): Promise<void> => {
+  const client = getRedisClient();
+  if (!client) {
+    return;
+  }
+
+  await Promise.all([
+    deleteExecutorAccessCacheKey(client, formatCacheKey(executorId)),
+    deleteExecutorAccessCacheKey(client, formatBackupKey(executorId)),
+  ]);
+};
+
+export const refreshExecutorOrderAccessCache = async (
+  executorId: number,
+  record?: ExecutorOrderAccessPrimaryData | null,
+  options?: { ttlSeconds?: number },
+): Promise<void> => {
+  await clearExecutorOrderAccessCache(executorId);
+
+  if (record) {
+    await primeExecutorOrderAccessCache(executorId, record, options);
+  }
+};
+
 export const hasExecutorOrderAccess = async (executorId: number): Promise<boolean> => {
   const access = await getExecutorOrderAccess(executorId);
   if (!access) {
