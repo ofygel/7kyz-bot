@@ -13,6 +13,10 @@ are missing or blank.
 - `KASPI_CARD` – Kaspi Gold card number shown in the subscription instructions.
 - `KASPI_NAME` – Account holder name displayed alongside the Kaspi details.
 - `KASPI_PHONE` – Contact phone number provided with the Kaspi payment details.
+- `SUPPORT_USERNAME` – Telegram username (without the leading `@`) used by the bot
+  when referencing the human support operator in messages and replies.
+- `SUPPORT_URL` – Deep link or invite URL that directs users to the support contact
+  or channel when they request assistance from the bot.
 - `WEBHOOK_DOMAIN` – Publicly reachable base URL used to register the Telegram webhook
   endpoint (for example, `https://bot.example.com`).
 - `WEBHOOK_SECRET` – Secret token appended to the webhook path to prevent unsolicited
