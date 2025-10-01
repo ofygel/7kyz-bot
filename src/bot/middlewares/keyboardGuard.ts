@@ -65,11 +65,6 @@ export const keyboardGuard = (): MiddlewareFn<BotContext> => async (ctx, next) =
     return;
   }
 
-  if (user.status === 'trial_expired') {
-    await ctx.reply('Пробный период завершён. Продлите подписку для продолжения работы.', executorKeyboard());
-    return;
-  }
-
   const executor = isExecutorUser(ctx);
   const inClientMenu = CLIENT_WHITELIST.has(text);
   const inExecutorMenu = EXECUTOR_WHITELIST.has(text);
