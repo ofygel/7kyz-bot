@@ -22,6 +22,7 @@ solely for local development resets.
 | `0006_update_recent_locations_schema.up.sql` | Expands `user_recent_locations` to track multiple entries per user/city/kind combination and aligns the types with the application service. |
 | `0008_add_user_foreign_keys.up.sql` | Adds cascading foreign keys from analytics and cache tables to `users(tg_id)` to keep auxiliary data in sync. |
 | `0009_activate_verified_clients.up.sql` | Promotes phone-verified users stuck in onboarding to the `active_client` status and stores their previous status for easy rollback. |
+| `0021_user_role_executor_reapply.up.sql` | Replays the executor role refactor to ensure the derived columns and enums exist on databases that missed the original migrations. |
 
 If your database is empty, running the migrations once is sufficient — both
 files will be executed and the second one becomes a no-op after the index
