@@ -296,6 +296,103 @@ void (async () => {
     );
   }
 
+  {
+    const keyboardNonce = '----------';
+    const rawAction = 'client:orders:dash-nonce';
+    const userId = 333_444_555;
+
+    const wrappedWithDashedNonce = await wrapCallbackData(rawAction, {
+      secret,
+      userId,
+      keyboardNonce,
+      bindToUser: true,
+      ttlSeconds: 300,
+    });
+
+    assert.ok(
+      !wrappedWithDashedNonce.startsWith(`${CALLBACK_SURROGATE_TOKEN_PREFIX}:`),
+      'Wrapped callback should not fall back to surrogate storage for regression scenario',
+    );
+
+    const decodedWithDashedNonce = tryDecodeCallbackData(wrappedWithDashedNonce);
+    assert.ok(
+      decodedWithDashedNonce.ok,
+      'Wrapped callback without nonce should decode correctly even when fallback nonce is available',
+    );
+    assert.equal(
+      decodedWithDashedNonce.wrapped.nonce,
+      undefined,
+      'Decoded wrapped callback should omit nonce metadata when sanitisation strips the bound nonce',
+    );
+    assert.equal(
+      decodedWithDashedNonce.wrapped.raw,
+      rawAction,
+      'Decoded wrapped callback should preserve the original action payload',
+    );
+
+    const fallbackNonce = crypto
+      .createHash('sha256')
+      .update(`kb:${userId}`)
+      .digest('base64url')
+      .slice(0, 16);
+    const sanitisedFallbackNonce = fallbackNonce.replace(/-/g, '').slice(0, 10);
+
+    assert.ok(
+      sanitisedFallbackNonce,
+      'Derived fallback nonce should remain non-empty after sanitisation for regression coverage',
+    );
+
+    const ctx = {
+      auth: {
+        user: {
+          telegramId: userId,
+          keyboardNonce,
+          phoneVerified: false,
+          role: 'client',
+          status: 'active_client',
+          verifyStatus: 'none',
+          subscriptionStatus: 'none',
+          isVerified: false,
+          isBlocked: false,
+          hasActiveOrder: false,
+        },
+      },
+    };
+
+    const debugEvents: unknown[][] = [];
+    const originalDebug = logger.debug;
+    (logger as unknown as { debug: (...args: unknown[]) => void }).debug = (
+      ...args: unknown[]
+    ): void => {
+      debugEvents.push(args);
+    };
+
+    try {
+      const verified = verifyCallbackForUser(
+        ctx as unknown as import('../src/bot/types').BotContext,
+        decodedWithDashedNonce.wrapped,
+        secret,
+      );
+
+      assert.equal(
+        verified,
+        true,
+        'Callback verification should accept callbacks without nonce when current sanitised nonce is empty',
+      );
+    } finally {
+      (logger as unknown as { debug: typeof originalDebug }).debug = originalDebug;
+    }
+
+    assert.ok(
+      debugEvents.some(
+        ([, message]) =>
+          typeof message === 'string' &&
+          message === 'Accepting callback for user without nonce after sanitisation',
+      ),
+      'Accepting callbacks with empty sanitised nonces should be logged at debug level even when fallback exists',
+    );
+  }
+
   callbackStore.clear();
 
   const warnings: unknown[][] = [];

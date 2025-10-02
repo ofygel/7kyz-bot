@@ -337,8 +337,7 @@ export const verifyCallbackForUser = (
     return false;
   }
 
-  const sanitisedNonceMissing = !wrapped.nonce && !encodedNonce && !encodedFallbackNonce;
-  if (sanitisedNonceMissing) {
+  if (!wrapped.nonce && !encodedNonce) {
     logger.debug(
       {
         telegramId: user.telegramId,
