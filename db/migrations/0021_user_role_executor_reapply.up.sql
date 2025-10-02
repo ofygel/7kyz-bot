@@ -41,8 +41,8 @@ SET executor_kind = CASE role::text
   WHEN 'driver' THEN 'driver'::executor_kind
   ELSE executor_kind
 END
-WHERE executor_kind IS NULL
-  AND role::text IN ('courier', 'driver');
+WHERE role::text IN ('courier', 'driver')
+  AND (executor_kind IS NULL OR executor_kind::text <> role::text);
 
 DO $$
 DECLARE
@@ -118,7 +118,7 @@ BEGIN
   IF EXISTS (
     SELECT 1
     FROM information_schema.columns
-    WHERE table_schema = 'public'
+    WHERE table_schema = current_schema()
       AND table_name = 'users'
       AND column_name = 'trial_ends_at'
   ) THEN
