@@ -14,6 +14,9 @@ are missing or blank.
   `openssl rand -hex 32` or `openssl rand -base64 32`) and keep it separate from the
   bot token.
 - `DATABASE_URL` – PostgreSQL connection string used by the application layer.
+- `REDIS_URL` – Redis connection string used by the BullMQ reminder queue and
+  session cache. Redis must be available so the bot can schedule executor plan
+  reminders and persist conversations during short database outages.
 - `KASPI_CARD` – Kaspi Gold card number shown in the subscription instructions.
 - `KASPI_NAME` – Account holder name displayed alongside the Kaspi details.
 - `KASPI_PHONE` – Contact phone number provided with the Kaspi payment details.
@@ -49,9 +52,6 @@ are missing or blank.
 
 ## Session cache
 
-- `REDIS_URL` – Optional Redis connection string. When provided, the bot
-  mirrors the per-user session payload in Redis to shield conversations from
-  short-lived PostgreSQL outages.
 - `SESSION_TTL_SECONDS` – Session cache expiration in seconds. Defaults to
   86400 (24 hours). Lower the value to reduce memory usage when Redis is
   shared with other services.

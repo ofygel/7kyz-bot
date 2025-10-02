@@ -486,7 +486,16 @@ export interface AppConfig {
 }
 
 export const loadConfig = (): AppConfig => {
+  const nodeEnv = getTrimmedEnv('NODE_ENV') ?? process.env.NODE_ENV ?? 'development';
+  const isTestEnv = nodeEnv === 'test';
   const redisUrl = getOptionalString('REDIS_URL');
+  if (!isTestEnv && !redisUrl) {
+    throw new Error(
+      'REDIS_URL must be set to a valid Redis connection string when running outside of tests. ' +
+        'Redis is required for BullMQ reminders and session storage.',
+    );
+  }
+
   const sessionCachePrefix = getOptionalString('SESSION_CACHE_PREFIX') ?? 'session:';
   const planDurations = parsePlanDurations();
   const ordersChannelId = parseOptionalChatId('ORDERS_CHANNEL_ID');
@@ -500,7 +509,7 @@ export const loadConfig = (): AppConfig => {
     : `@${supportUsername}`;
 
   return {
-    nodeEnv: process.env.NODE_ENV ?? 'development',
+    nodeEnv,
     logLevel: resolveLogLevel(process.env.PINO_LEVEL ?? process.env.LOG_LEVEL),
     logTransport: resolveLogTransport(process.env.PINO_TRANSPORT),
     logRateLimit: 50,
