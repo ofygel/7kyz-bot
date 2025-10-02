@@ -20,16 +20,25 @@ import { copy } from '../copy';
 const resolveSecret = (): string => config.bot.hmacSecret;
 
 const handleInvalidCallback = async (ctx: BotContext): Promise<void> => {
+  const chatType = ctx.chat?.type;
+  const isPrivateChat = chatType === 'private';
+
   if (typeof ctx.answerCbQuery === 'function') {
     try {
-      await ctx.answerCbQuery(copy.expiredButton, { show_alert: false });
+      await ctx.answerCbQuery(copy.expiredButtonToast ?? copy.expiredButton, {
+        show_alert: false,
+      });
     } catch (error) {
       logger.debug({ err: error }, 'Failed to answer callback query in callbackDecoder');
     }
   }
 
+  if (!isPrivateChat) {
+    return;
+  }
+
   try {
-    await renderMenuFor(ctx);
+    await renderMenuFor(ctx, { prompt: copy.expiredButton });
   } catch (error) {
     logger.debug({ err: error }, 'Failed to render menu after invalid callback payload');
   }
