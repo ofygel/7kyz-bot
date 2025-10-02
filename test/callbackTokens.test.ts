@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 
 const requireFn = createRequire(__filename);
@@ -189,6 +190,92 @@ void (async () => {
       true,
       'Callback verification should accept legacy fallback nonces after nonce rotation',
     );
+  }
+
+  {
+    const keyboardNonce = '----------';
+    const rawAction = 'client:orders:missing-nonce';
+    const wrappedWithoutNonce = await wrapCallbackData(rawAction, {
+      secret,
+      userId: 222_333_444,
+      keyboardNonce,
+      bindToUser: true,
+      ttlSeconds: 300,
+    });
+
+    assert.ok(!wrappedWithoutNonce.includes('|n='), 'Wrapped callback should omit nonce metadata when sanitised value is empty');
+
+    const decodedWithoutNonce = tryDecodeCallbackData(wrappedWithoutNonce);
+    assert.ok(decodedWithoutNonce.ok, 'Wrapped callback without nonce must still decode successfully');
+    assert.equal(
+      decodedWithoutNonce.wrapped.nonce,
+      undefined,
+      'Decoded wrapped callback should not expose a nonce when the sanitised value is empty',
+    );
+
+    const ctx = {
+      auth: {
+        user: {
+          telegramId: 222_333_444,
+          keyboardNonce,
+          phoneVerified: false,
+          role: 'client',
+          status: 'active_client',
+          verifyStatus: 'none',
+          subscriptionStatus: 'none',
+          isVerified: false,
+          isBlocked: false,
+          hasActiveOrder: false,
+        },
+      },
+    };
+
+    const originalCreateHash = crypto.createHash;
+    (crypto as unknown as { createHash: typeof originalCreateHash }).createHash = ((algorithm: Parameters<
+      typeof originalCreateHash
+    >[0]) => {
+      const hash = originalCreateHash(algorithm);
+      const originalUpdate = hash.update.bind(hash);
+      const originalDigest = hash.digest.bind(hash);
+      let forceDashed = false;
+
+      (hash as unknown as { update: typeof hash.update }).update = ((data: Parameters<typeof hash.update>[0]) => {
+        if (typeof data === 'string' && data.startsWith('kb:')) {
+          forceDashed = true;
+        }
+        originalUpdate(data);
+        return hash;
+      }) as typeof hash.update;
+
+      (hash as unknown as { digest: typeof hash.digest }).digest = ((encoding?: Parameters<typeof hash.digest>[0]) => {
+        if (forceDashed && encoding === 'base64url') {
+          forceDashed = false;
+          return '----------';
+        }
+        if (typeof encoding === 'undefined') {
+          return originalDigest();
+        }
+        return originalDigest(encoding);
+      }) as typeof hash.digest;
+
+      return hash;
+    }) as typeof originalCreateHash;
+
+    try {
+      const verified = verifyCallbackForUser(
+        ctx as unknown as import('../src/bot/types').BotContext,
+        decodedWithoutNonce.wrapped,
+        secret,
+      );
+
+      assert.equal(
+        verified,
+        true,
+        'Callback verification should accept callbacks without a nonce when sanitisation strips all characters',
+      );
+    } finally {
+      (crypto as unknown as { createHash: typeof originalCreateHash }).createHash = originalCreateHash;
+    }
   }
 
   callbackStore.clear();

@@ -345,6 +345,19 @@ export const verifyCallbackForUser = (
     return true;
   }
 
+  const sanitisedNonceMissing = !wrapped.nonce && !encodedNonce && !encodedFallbackNonce;
+  if (sanitisedNonceMissing) {
+    logger.debug(
+      {
+        telegramId: user.telegramId,
+        action: wrapped.raw,
+        version: wrapped.version,
+      },
+      'Accepting callback for user without nonce after sanitisation',
+    );
+    return true;
+  }
+
   return false;
 };
 
