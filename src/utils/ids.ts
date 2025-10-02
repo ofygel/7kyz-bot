@@ -1,10 +1,12 @@
+import { randomInt as cryptoRandomInt } from 'node:crypto';
+
 const DEFAULT_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
 const DEFAULT_LENGTH = 8;
 
 const isAlphabetValid = (alphabet: string): boolean =>
   Boolean(alphabet) && new Set(alphabet).size === alphabet.length;
 
-const randomInt = (max: number): number => Math.floor(Math.random() * max);
+const randomIndex = (max: number): number => cryptoRandomInt(max);
 
 export interface ShortIdOptions {
   /** Custom alphabet used to generate IDs. Defaults to base36 characters. */
@@ -25,7 +27,7 @@ export const createShortId = (options: ShortIdOptions = {}): string => {
 
   let id = '';
   for (let index = 0; index < length; index += 1) {
-    id += alphabet[randomInt(alphabet.length)];
+    id += alphabet[randomIndex(alphabet.length)];
   }
 
   return id;
