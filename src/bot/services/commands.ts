@@ -36,6 +36,7 @@ export const setChatCommands = async (
       chatId,
       menuButton: { type: 'commands' },
     });
+    logger.info({ chatId }, 'Chat menu button set to commands');
   } catch (error) {
     logger.warn({ err: error, chatId }, 'Failed to set chat menu button');
   }
