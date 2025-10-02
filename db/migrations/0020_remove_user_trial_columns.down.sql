@@ -14,6 +14,9 @@ BEGIN
     CREATE TYPE user_subscription_status AS ENUM ('none', 'trial', 'active', 'grace', 'expired');
 
     ALTER TABLE users
+      ALTER COLUMN sub_status DROP DEFAULT;
+
+    ALTER TABLE users
       ALTER COLUMN sub_status TYPE user_subscription_status
       USING sub_status::text::user_subscription_status;
 
