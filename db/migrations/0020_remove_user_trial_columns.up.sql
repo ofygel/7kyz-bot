@@ -9,6 +9,9 @@ BEGIN
     FROM pg_type
     WHERE typname = 'user_subscription_status'
   ) THEN
+    ALTER TYPE user_subscription_status
+      ADD VALUE IF NOT EXISTS 'trial';
+
     UPDATE users
     SET sub_status = 'active'
     WHERE sub_status = 'trial';
@@ -16,6 +19,9 @@ BEGIN
     ALTER TYPE user_subscription_status RENAME TO user_subscription_status_old;
 
     CREATE TYPE user_subscription_status AS ENUM ('none', 'active', 'grace', 'expired');
+
+    ALTER TABLE users
+      ALTER COLUMN sub_status DROP DEFAULT;
 
     ALTER TABLE users
       ALTER COLUMN sub_status TYPE user_subscription_status
