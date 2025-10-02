@@ -17,15 +17,13 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_subscription_status') THEN
-    CREATE TYPE user_subscription_status AS ENUM ('none', 'trial', 'active', 'grace', 'expired');
+    CREATE TYPE user_subscription_status AS ENUM ('none', 'active', 'grace', 'expired');
   END IF;
 END $$;
 
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS executor_kind executor_kind,
   ADD COLUMN IF NOT EXISTS verify_status user_verify_status NOT NULL DEFAULT 'none',
-  ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS trial_expires_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS sub_status user_subscription_status NOT NULL DEFAULT 'none',
   ADD COLUMN IF NOT EXISTS sub_expires_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS has_active_order BOOLEAN NOT NULL DEFAULT FALSE;
@@ -34,6 +32,11 @@ ALTER TABLE users
   ALTER COLUMN verify_status SET DEFAULT 'none',
   ALTER COLUMN sub_status SET DEFAULT 'none',
   ALTER COLUMN has_active_order SET DEFAULT FALSE;
+
+ALTER TABLE users
+  ALTER COLUMN verify_status SET NOT NULL,
+  ALTER COLUMN sub_status SET NOT NULL,
+  ALTER COLUMN has_active_order SET NOT NULL;
 
 UPDATE users
 SET executor_kind = CASE role::text
@@ -86,51 +89,6 @@ BEGIN
     WHERE role::text IN ('courier', 'driver');
   END IF;
 END $$;
-
-WITH latest AS (
-  SELECT DISTINCT ON (user_id) user_id, status
-  FROM verifications
-  ORDER BY user_id, updated_at DESC, id DESC
-)
-UPDATE users AS u
-SET verify_status = CASE
-      WHEN u.verify_status = 'active' THEN 'active'
-      WHEN latest.status IS NULL THEN u.verify_status
-      WHEN latest.status = 'active' THEN 'active'
-      WHEN latest.status = 'pending' THEN 'pending'
-      WHEN latest.status = 'rejected' THEN 'rejected'
-      WHEN latest.status = 'expired' THEN 'expired'
-      ELSE u.verify_status
-    END
-FROM latest
-WHERE u.tg_id = latest.user_id;
-
-UPDATE users
-SET verify_status = 'active'
-WHERE verify_status = 'none' AND role = 'executor' AND executor_kind IS NOT NULL;
-
-UPDATE users
-SET trial_started_at = COALESCE(trial_started_at, verified_at, trial_expires_at)
-WHERE trial_started_at IS NULL;
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema = current_schema()
-      AND table_name = 'users'
-      AND column_name = 'trial_ends_at'
-  ) THEN
-    UPDATE users
-    SET trial_expires_at = COALESCE(trial_expires_at, trial_ends_at)
-    WHERE trial_expires_at IS NULL;
-  END IF;
-END $$;
-
-UPDATE users
-SET trial_expires_at = COALESCE(trial_expires_at, trial_started_at)
-WHERE trial_expires_at IS NULL;
 
 ALTER TABLE users
   DROP COLUMN IF EXISTS trial_ends_at,
