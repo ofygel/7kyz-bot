@@ -114,10 +114,11 @@ export const applyClientRole = async (ctx: BotContext): Promise<void> => {
   const shouldPreserveStatus = restrictedStatuses.has(authUser.status);
 
   const nextStatus = shouldPreserveStatus ? authUser.status : 'active_client';
+  let ensuredKeyboardNonce: string | undefined;
 
   if (shouldEnsureRole || shouldUpdatePhone) {
     try {
-      await ensureClientRole({
+      ensuredKeyboardNonce = await ensureClientRole({
         telegramId: authUser.telegramId,
         username: username ?? undefined,
         firstName: firstName ?? undefined,
@@ -137,6 +138,9 @@ export const applyClientRole = async (ctx: BotContext): Promise<void> => {
   authUser.username = username ?? undefined;
   authUser.firstName = firstName ?? undefined;
   authUser.lastName = lastName ?? undefined;
+  if (!authUser.keyboardNonce && ensuredKeyboardNonce) {
+    authUser.keyboardNonce = ensuredKeyboardNonce;
+  }
   if (phone) {
     authUser.phone = phone;
     authUser.phoneVerified = true;

@@ -118,7 +118,7 @@ test('applyClientRole reports client role assignment', { concurrency: false }, a
   const { applyClientRole } = require('../src/bot/flows/client/menu');
 
   const originalEnsureClientRole = dbUsers.ensureClientRole;
-  dbUsers.ensureClientRole = async () => {};
+  dbUsers.ensureClientRole = async () => 'test-keyboard-nonce';
   t.after(() => {
     dbUsers.ensureClientRole = originalEnsureClientRole;
   });

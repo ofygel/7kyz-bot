@@ -52,6 +52,7 @@ void (async () => {
     CALLBACK_SURROGATE_TOKEN_PREFIX,
     CALLBACK_SURROGATE_ACTION,
     bindInlineKeyboardToUser,
+    verifyCallbackForUser,
   } = await import('../src/bot/services/callbackTokens');
   const { logger } = await import('../src/config');
   const { ROLE_PICK_EXECUTOR_ACTION } = await import('../src/bot/flows/executor/roleSelectionConstants');
@@ -132,6 +133,63 @@ void (async () => {
 
   callbackStore.clear();
 
+  {
+    const ctx = {
+      auth: {
+        user: {
+          telegramId: 444_555_666,
+          phoneVerified: false,
+          role: 'client',
+          status: 'active_client',
+          verifyStatus: 'none',
+          subscriptionStatus: 'none',
+          isVerified: false,
+          isBlocked: false,
+          hasActiveOrder: false,
+          keyboardNonce: undefined as string | undefined,
+        },
+      },
+    };
+
+    const keyboard: import('telegraf/typings/core/types/typegram').InlineKeyboardMarkup = {
+      inline_keyboard: [[{ text: 'Orders', callback_data: 'client:orders:list' }]],
+    };
+
+    const bound = bindInlineKeyboardToUser(
+      ctx as unknown as import('../src/bot/types').BotContext,
+      keyboard,
+    );
+    assert.ok(bound, 'Binding keyboard without keyboard nonce should produce a keyboard');
+
+    const boundData = (bound!.inline_keyboard?.[0]?.[0] as { callback_data?: string })?.callback_data;
+    assert.ok(boundData, 'Bound keyboard button must contain callback data');
+
+    const decoded = tryDecodeCallbackData(boundData);
+    assert.ok(decoded.ok, 'Bound callback data should decode successfully');
+
+    ctx.auth!.user.keyboardNonce = 'fresh-nonce-value';
+    const sanitisedNewNonce = ctx.auth!.user.keyboardNonce.replace(/-/g, '').slice(0, 10);
+    assert.notEqual(
+      decoded.wrapped.nonce,
+      sanitisedNewNonce,
+      'Decoded callback should use fallback nonce prior to synchronisation',
+    );
+
+    const verified = verifyCallbackForUser(
+      ctx as unknown as import('../src/bot/types').BotContext,
+      decoded.wrapped,
+      secret,
+    );
+
+    assert.equal(
+      verified,
+      true,
+      'Callback verification should accept legacy fallback nonces after nonce rotation',
+    );
+  }
+
+  callbackStore.clear();
+
   const warnings: unknown[][] = [];
   const originalWarn = logger.warn;
 
@@ -150,11 +208,22 @@ void (async () => {
         user: {
           telegramId: 123_456_789_012,
           keyboardNonce: 'nonce-value',
+          phoneVerified: false,
+          role: 'client',
+          status: 'active_client',
+          verifyStatus: 'none',
+          subscriptionStatus: 'none',
+          isVerified: false,
+          isBlocked: false,
+          hasActiveOrder: false,
         },
       },
-    } satisfies Partial<import('../src/bot/types').BotContext>;
+    };
 
-    boundKeyboard = bindInlineKeyboardToUser(ctx as import('../src/bot/types').BotContext, keyboard);
+    boundKeyboard = bindInlineKeyboardToUser(
+      ctx as unknown as import('../src/bot/types').BotContext,
+      keyboard,
+    );
   } finally {
     (logger as unknown as { warn: typeof originalWarn }).warn = originalWarn;
   }
@@ -162,7 +231,7 @@ void (async () => {
   assert.ok(boundKeyboard, 'Binding inline keyboard should return a keyboard instance');
   assert.notEqual(boundKeyboard, keyboard, 'Binding should produce a new keyboard reference when changes apply');
 
-  const boundButton = boundKeyboard!.inline_keyboard?.[0]?.[0];
+  const boundButton = boundKeyboard!.inline_keyboard?.[0]?.[0] as { callback_data?: string };
   assert.ok(boundButton, 'Bound keyboard should preserve the original button');
   assert.ok(boundButton!.callback_data, 'Bound button must include callback data');
   assert.ok(
