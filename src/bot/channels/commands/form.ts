@@ -389,19 +389,21 @@ const formatDateTime = (value: Date): string =>
     timeZone: config.timezone,
   }).format(value);
 
-const buildPlanChoiceKeyboard = (): ReturnType<typeof buildInlineKeyboard> => {
+const buildPlanChoiceKeyboard = async (): Promise<ReturnType<typeof buildInlineKeyboard>> => {
   const secret = config.bot.hmacSecret;
   const rows: Array<Array<{ label: string; action: string }>> = [];
   for (let index = 0; index < PLAN_VALUES.length; index += PLAN_CHOICES_PER_ROW) {
     const rowValues = PLAN_VALUES.slice(index, index + PLAN_CHOICES_PER_ROW);
     rows.push(
-      rowValues.map((choice) => ({
-        label: PLAN_CHOICE_LABELS[choice],
-        action: wrapCallbackData(`${PLAN_SELECT_ACTION}:${choice}`, {
-          secret,
-          ttlSeconds: CALLBACK_TTL_SECONDS,
-        }),
-      })),
+      await Promise.all(
+        rowValues.map(async (choice) => ({
+          label: PLAN_CHOICE_LABELS[choice],
+          action: await wrapCallbackData(`${PLAN_SELECT_ACTION}:${choice}`, {
+            secret,
+            ttlSeconds: CALLBACK_TTL_SECONDS,
+          }),
+        })),
+      ),
     );
   }
 
@@ -473,7 +475,7 @@ const renderPlanStep = async (
   await ui.step(ctx, {
     id: buildWizardStepId(threadKey, 'plan'),
     text: lines.join('\n'),
-    keyboard: buildPlanChoiceKeyboard(),
+    keyboard: await buildPlanChoiceKeyboard(),
     messageThreadId: state.threadId,
   });
 };
@@ -569,7 +571,7 @@ const refreshPlanCardMessage = async (
   }
 
   const summary = buildPlanSummary(plan);
-  const keyboard = buildExecutorPlanActionKeyboard(plan);
+  const keyboard = await buildExecutorPlanActionKeyboard(plan);
 
   try {
     await ctx.telegram.editMessageText(
@@ -654,11 +656,11 @@ const renderSummaryStep = async (
 
   const secret = config.bot.hmacSecret;
   const keyboard = buildConfirmCancelKeyboard(
-    wrapCallbackData(SUMMARY_CONFIRM_ACTION, {
+    await wrapCallbackData(SUMMARY_CONFIRM_ACTION, {
       secret,
       ttlSeconds: CALLBACK_TTL_SECONDS,
     }),
-    wrapCallbackData(SUMMARY_CANCEL_ACTION, {
+    await wrapCallbackData(SUMMARY_CANCEL_ACTION, {
       secret,
       ttlSeconds: CALLBACK_TTL_SECONDS,
     }),
@@ -1120,7 +1122,7 @@ const handleSummaryDecision = async (
     try {
       const message = await ctx.telegram.sendMessage(plan.chatId, buildPlanSummary(plan), {
         message_thread_id: plan.threadId ?? undefined,
-        reply_markup: buildExecutorPlanActionKeyboard(plan),
+        reply_markup: await buildExecutorPlanActionKeyboard(plan),
       });
 
       if (message && typeof message.message_id === 'number') {

@@ -22,6 +22,9 @@ const callbackStore = new Map<string, {
       payload: unknown;
       expiresAt: Date;
     }): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
       callbackStore.set(record.token, { ...record });
     },
     loadCallbackMapRecord: async (token: string): Promise<unknown> =>
@@ -59,7 +62,7 @@ void (async () => {
 
   const secret = 'test-secret';
 
-  const wrapped = wrapCallbackData(ROLE_PICK_EXECUTOR_ACTION, {
+  const wrapped = await wrapCallbackData(ROLE_PICK_EXECUTOR_ACTION, {
     secret,
     userId: 987654321,
     keyboardNonce: 'n',
@@ -83,7 +86,7 @@ void (async () => {
 
   let oversizeOutcome: import('../src/bot/services/callbackTokens').WrapCallbackOutcome | undefined;
   const longRaw = 'x'.repeat(130);
-  const oversizeWrapped = wrapCallbackData(longRaw, {
+  const oversizeWrapped = await wrapCallbackData(longRaw, {
     secret,
     userId: 111111,
     keyboardNonce: 'nonce-value',
@@ -155,7 +158,7 @@ void (async () => {
       inline_keyboard: [[{ text: 'Orders', callback_data: 'client:orders:list' }]],
     };
 
-    const bound = bindInlineKeyboardToUser(
+    const bound = await bindInlineKeyboardToUser(
       ctx as unknown as import('../src/bot/types').BotContext,
       keyboard,
     );
@@ -220,7 +223,7 @@ void (async () => {
       },
     };
 
-    boundKeyboard = bindInlineKeyboardToUser(
+    boundKeyboard = await bindInlineKeyboardToUser(
       ctx as unknown as import('../src/bot/types').BotContext,
       keyboard,
     );

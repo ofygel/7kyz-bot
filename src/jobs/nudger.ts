@@ -143,11 +143,11 @@ const buildNudgeText = (payload: FlowPayloadShape): string => {
   return segments.join('\n\n');
 };
 
-const bindAction = (
+const bindAction = async (
   action: string,
   userId: string | null,
   keyboardNonce: string | null,
-): string => {
+): Promise<string> => {
   const shouldBind = Boolean(userId && keyboardNonce);
 
   return wrapCallbackData(action, {
@@ -159,19 +159,19 @@ const bindAction = (
   });
 };
 
-const buildNudgeKeyboard = (
+const buildNudgeKeyboard = async (
   payload: FlowPayloadShape,
   role: string | null,
   userId: string | null,
   keyboardNonce: string | null,
-): InlineKeyboardMarkup | undefined => {
+): Promise<InlineKeyboardMarkup | undefined> => {
   const rows: { label: string; action: string }[][] = [];
 
   if (payload.homeAction) {
     rows.push([
       {
         label: copy.resume,
-        action: bindAction(payload.homeAction, userId, keyboardNonce),
+        action: await bindAction(payload.homeAction, userId, keyboardNonce),
       },
     ]);
   }
@@ -187,7 +187,7 @@ const buildNudgeKeyboard = (
     rows.push([
       {
         label: copy.home,
-        action: bindAction(fallbackAction, userId, keyboardNonce),
+        action: await bindAction(fallbackAction, userId, keyboardNonce),
       },
     ]);
   }
@@ -222,7 +222,7 @@ const deliverNudge = async (bot: Telegraf<BotContext>, row: PendingSessionRow): 
   }
 
   const payload = parseFlowPayload(row.flow_payload);
-  const keyboard = buildNudgeKeyboard(
+  const keyboard = await buildNudgeKeyboard(
     payload,
     row.role,
     sessionKey.scopeId,

@@ -195,10 +195,10 @@ export const buildProfileCardText = (ctx: BotContext): string => {
   return lines.join('\n');
 };
 
-const buildProfileCardKeyboard = (
+const buildProfileCardKeyboard = async (
   ctx: BotContext,
   options: ProfileCardNavigationOptions,
-): InlineKeyboardMarkup | undefined => {
+): Promise<InlineKeyboardMarkup | undefined> => {
   const rows: KeyboardButton[][] = [];
 
   if (options.changeCityAction) {
@@ -264,7 +264,7 @@ export const renderProfileCard = async (
   }
 
   const text = buildProfileCardText(ctx);
-  const reply_markup = buildProfileCardKeyboard(ctx, options);
+  const reply_markup = await buildProfileCardKeyboard(ctx, options);
 
   const message = ctx.callbackQuery?.message;
   if (message && 'message_id' in message && typeof message.message_id === 'number') {

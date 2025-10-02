@@ -85,22 +85,25 @@ export interface WrapCallbackOutcome {
   reason?: 'oversize' | 'raw-too-long';
 }
 
-const persistSurrogateToken = (
+const persistSurrogateToken = async (
   token: string,
   payload: CallbackSurrogatePayload,
   expiresAt: Date,
-): void => {
-  void upsertCallbackMapRecord<CallbackSurrogatePayload>({
-    token,
-    action: CALLBACK_SURROGATE_ACTION,
-    payload,
-    expiresAt,
-  }).catch((error) => {
+): Promise<void> => {
+  try {
+    await upsertCallbackMapRecord<CallbackSurrogatePayload>({
+      token,
+      action: CALLBACK_SURROGATE_ACTION,
+      payload,
+      expiresAt,
+    });
+  } catch (error) {
     logger.error({ err: error, token }, 'Failed to persist callback surrogate payload');
-  });
+    throw error;
+  }
 };
 
-export const wrapCallbackData = (raw: string, options: WrapCallbackOptions): string => {
+export const wrapCallbackData = async (raw: string, options: WrapCallbackOptions): Promise<string> => {
   const ttlSeconds = Math.max(1, Math.floor(options.ttlSeconds ?? config.bot.callbackTtlSeconds));
   const issuedAtRaw = options.issuedAt ?? Date.now();
   const issuedAtSeconds =
@@ -144,15 +147,15 @@ export const wrapCallbackData = (raw: string, options: WrapCallbackOptions): str
     options.onResult?.(outcome);
   };
 
-  const createSurrogateToken = (
+  const createSurrogateToken = async (
     data: string,
     bound: boolean,
     reason: WrapCallbackOutcome['reason'],
-  ): string => {
+  ): Promise<string> => {
     const surrogateToken = createShortCallbackId(CALLBACK_SURROGATE_TOKEN_PREFIX);
     const payload: CallbackSurrogatePayload = { raw, data };
 
-    persistSurrogateToken(surrogateToken, payload, expiresAtDate);
+    await persistSurrogateToken(surrogateToken, payload, expiresAtDate);
 
     report({
       status: 'wrapped',
@@ -350,10 +353,10 @@ const hasCallbackData = (
 ): button is InlineKeyboardMarkup['inline_keyboard'][number][number] & { callback_data: string } =>
   Object.prototype.hasOwnProperty.call(button, 'callback_data');
 
-export const bindInlineKeyboardToUser = (
+export const bindInlineKeyboardToUser = async (
   ctx: BotContext,
   keyboard: InlineKeyboardMarkup | undefined,
-): InlineKeyboardMarkup | undefined => {
+): Promise<InlineKeyboardMarkup | undefined> => {
   if (!keyboard || !keyboard.inline_keyboard || keyboard.inline_keyboard.length === 0) {
     return keyboard;
   }
@@ -371,51 +374,64 @@ export const bindInlineKeyboardToUser = (
   }
 
   let changed = false;
-  const inline_keyboard = keyboard.inline_keyboard.map((row) =>
-    row.map((button) => {
-      if (!hasCallbackData(button) || !button.callback_data) {
-        return button;
-      }
+  const inline_keyboard = await Promise.all(
+    keyboard.inline_keyboard.map((row) =>
+      Promise.all(
+        row.map(async (button) => {
+          if (!hasCallbackData(button) || !button.callback_data) {
+            return button;
+          }
 
-      if (tryDecodeCallbackData(button.callback_data).ok) {
-        return button;
-      }
+          if (tryDecodeCallbackData(button.callback_data).ok) {
+            return button;
+          }
 
-      let outcome: WrapCallbackOutcome | undefined;
-      const wrapped = wrapCallbackData(button.callback_data, {
-        secret,
-        userId: user.telegramId,
-        keyboardNonce,
-        bindToUser: true,
-        ttlSeconds: config.bot.callbackTtlSeconds,
-        onResult: (result) => {
-          outcome = result;
-        },
-      });
+          let outcome: WrapCallbackOutcome | undefined;
+          let wrapped: string;
+          try {
+            wrapped = await wrapCallbackData(button.callback_data, {
+              secret,
+              userId: user.telegramId,
+              keyboardNonce,
+              bindToUser: true,
+              ttlSeconds: config.bot.callbackTtlSeconds,
+              onResult: (result) => {
+                outcome = result;
+              },
+            });
+          } catch (error) {
+            logger.error(
+              { err: error, action: button.callback_data },
+              'Failed to bind callback data to user',
+            );
+            throw error;
+          }
 
-      if (outcome && (outcome.status !== 'wrapped' || !outcome.bound)) {
-        logger.warn(
-          {
-            action: button.callback_data,
-            status: outcome.status,
-            reason: outcome.reason,
-            length: outcome.length,
-            rawLength: outcome.rawLength,
-          },
-          'Failed to bind callback data to user due to length constraints',
-        );
-      }
+          if (outcome && (outcome.status !== 'wrapped' || !outcome.bound)) {
+            logger.warn(
+              {
+                action: button.callback_data,
+                status: outcome.status,
+                reason: outcome.reason,
+                length: outcome.length,
+                rawLength: outcome.rawLength,
+              },
+              'Failed to bind callback data to user due to length constraints',
+            );
+          }
 
-      if (wrapped === button.callback_data) {
-        return button;
-      }
+          if (wrapped === button.callback_data) {
+            return button;
+          }
 
-      changed = true;
-      return {
-        ...button,
-        callback_data: wrapped,
-      };
-    }),
+          changed = true;
+          return {
+            ...button,
+            callback_data: wrapped,
+          };
+        }),
+      ),
+    ),
   );
 
   if (!changed) {

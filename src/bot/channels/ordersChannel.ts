@@ -537,7 +537,7 @@ const buildAlreadyProcessedResponse = (state: OrderChannelState): string => {
   return copy.orderAlreadyTakenToast;
 };
 
-const buildActionKeyboard = (order: OrderRecord): InlineKeyboardMarkup => {
+const buildActionKeyboard = async (order: OrderRecord): Promise<InlineKeyboardMarkup> => {
   const locationsKeyboard = buildOrderLocationsKeyboard(order.city, order.pickup, order.dropoff);
   const acceptRaw = `${ACCEPT_ACTION_PREFIX}:${order.id}`;
   const declineRaw = `${DECLINE_ACTION_PREFIX}:${order.id}`;
@@ -545,7 +545,7 @@ const buildActionKeyboard = (order: OrderRecord): InlineKeyboardMarkup => {
     [
       {
         label: '✅ Беру заказ',
-        action: wrapCallbackData(acceptRaw, {
+        action: await wrapCallbackData(acceptRaw, {
           secret: callbackSecret,
           bindToUser: false,
           ttlSeconds: config.bot.callbackTtlSeconds,
@@ -555,7 +555,7 @@ const buildActionKeyboard = (order: OrderRecord): InlineKeyboardMarkup => {
     [
       {
         label: '❌ Недоступен',
-        action: wrapCallbackData(declineRaw, {
+        action: await wrapCallbackData(declineRaw, {
           secret: callbackSecret,
           bindToUser: false,
           ttlSeconds: config.bot.callbackTtlSeconds,
@@ -601,7 +601,7 @@ export const publishOrderToDriversChannel = async (
           } satisfies PublishOrderResult;
         }
 
-        const keyboard = buildActionKeyboard(order);
+        const keyboard = await buildActionKeyboard(order);
         const message = await telegram.sendMessage(chatId, messageText, {
           reply_markup: keyboard,
         });

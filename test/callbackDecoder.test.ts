@@ -22,6 +22,9 @@ let renderMenuCalls = 0;
   loaded: true,
   exports: {
     upsertCallbackMapRecord: async (record: StoredRecord): Promise<void> => {
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
       callbackStore.set(record.token, { ...record });
     },
     loadCallbackMapRecord: async (token: string): Promise<StoredRecord | null> =>
@@ -67,7 +70,7 @@ void (async () => {
 
   const secret = 'test-secret';
   const longRaw = `surrogate:${'x'.repeat(90)}`;
-  const surrogate = wrapCallbackData(longRaw, { secret, ttlSeconds: 60 });
+  const surrogate = await wrapCallbackData(longRaw, { secret, ttlSeconds: 60 });
 
   assert.ok(
     surrogate.startsWith(`${CALLBACK_SURROGATE_TOKEN_PREFIX}:`),
@@ -77,6 +80,34 @@ void (async () => {
   const storedRecord = callbackStore.get(surrogate);
   assert.ok(storedRecord, 'Surrogate payload should be stored for later resolution');
   assert.equal(storedRecord?.action, CALLBACK_SURROGATE_ACTION);
+
+  const immediateRaw = `surrogate:${'y'.repeat(80)}`;
+  const immediateToken = await wrapCallbackData(immediateRaw, { secret, ttlSeconds: 60 });
+
+  const immediateMiddleware = callbackDecoder();
+  let immediateAnswered = false;
+
+  const immediateCtx: any = {
+    callbackQuery: { data: immediateToken },
+    state: {},
+    answerCbQuery: async (): Promise<void> => {
+      immediateAnswered = true;
+    },
+  };
+
+  await immediateMiddleware(immediateCtx, async () => {
+    assert.equal(
+      immediateCtx.callbackQuery?.data,
+      immediateRaw,
+      'Immediate surrogate decode should restore original callback data',
+    );
+  });
+
+  assert.equal(
+    immediateAnswered,
+    false,
+    'Immediate surrogate decode must not be treated as expired or invalid',
+  );
 
   const middleware = callbackDecoder();
   let nextCalled = false;

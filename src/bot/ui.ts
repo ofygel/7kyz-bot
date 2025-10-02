@@ -188,7 +188,7 @@ export const ui = {
 
     const existing = state.steps[options.id];
     if (isInlineKeyboard(replyMarkup)) {
-      replyMarkup = bindInlineKeyboardToUser(ctx, replyMarkup);
+      replyMarkup = await bindInlineKeyboardToUser(ctx, replyMarkup);
     }
     if (existing && existing.chatId === chatId && isInlineKeyboard(replyMarkup)) {
       try {
@@ -219,9 +219,7 @@ export const ui = {
     }
 
     const extra = {
-      reply_markup: isInlineKeyboard(replyMarkup)
-        ? bindInlineKeyboardToUser(ctx, replyMarkup)
-        : replyMarkup,
+      reply_markup: replyMarkup,
       parse_mode: options.parseMode,
       link_preview_options: options.linkPreviewOptions,
       ...(options.messageThreadId !== undefined

@@ -13,34 +13,34 @@ import { wrapCallbackData } from '../services/callbackTokens';
 
 const CALLBACK_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-const buildExtendAction = (planId: number, days: number, secret: string): string =>
+const buildExtendAction = async (planId: number, days: number, secret: string): Promise<string> =>
   wrapCallbackData(`${EXECUTOR_PLAN_EXTEND_ACTION}:${planId}:${days}`, {
     secret,
     ttlSeconds: CALLBACK_TTL_SECONDS,
   });
 
-export const buildExecutorPlanActionKeyboard = (
+export const buildExecutorPlanActionKeyboard = async (
   plan: ExecutorPlanRecord,
-): InlineKeyboardMarkup => {
+): Promise<InlineKeyboardMarkup> => {
   const secret = config.bot.hmacSecret;
 
-  const extend7 = buildExtendAction(plan.id, 7, secret);
-  const extend15 = buildExtendAction(plan.id, 15, secret);
-  const extend30 = buildExtendAction(plan.id, 30, secret);
+  const extend7 = await buildExtendAction(plan.id, 7, secret);
+  const extend15 = await buildExtendAction(plan.id, 15, secret);
+  const extend30 = await buildExtendAction(plan.id, 30, secret);
 
-  const blockAction = wrapCallbackData(`${EXECUTOR_PLAN_BLOCK_ACTION}:${plan.id}`, {
+  const blockAction = await wrapCallbackData(`${EXECUTOR_PLAN_BLOCK_ACTION}:${plan.id}`, {
     secret,
     ttlSeconds: CALLBACK_TTL_SECONDS,
   });
-  const unblockAction = wrapCallbackData(`${EXECUTOR_PLAN_UNBLOCK_ACTION}:${plan.id}`, {
+  const unblockAction = await wrapCallbackData(`${EXECUTOR_PLAN_UNBLOCK_ACTION}:${plan.id}`, {
     secret,
     ttlSeconds: CALLBACK_TTL_SECONDS,
   });
-  const toggleMuteAction = wrapCallbackData(`${EXECUTOR_PLAN_TOGGLE_MUTE_ACTION}:${plan.id}`, {
+  const toggleMuteAction = await wrapCallbackData(`${EXECUTOR_PLAN_TOGGLE_MUTE_ACTION}:${plan.id}`, {
     secret,
     ttlSeconds: CALLBACK_TTL_SECONDS,
   });
-  const editAction = wrapCallbackData(`${EXECUTOR_PLAN_EDIT_ACTION}:${plan.id}`, {
+  const editAction = await wrapCallbackData(`${EXECUTOR_PLAN_EDIT_ACTION}:${plan.id}`, {
     secret,
     ttlSeconds: CALLBACK_TTL_SECONDS,
   });
