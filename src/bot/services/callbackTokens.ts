@@ -331,18 +331,10 @@ export const verifyCallbackForUser = (
   const resolvedNonce = resolveKeyboardNonce(user);
   const encodedNonce = sanitiseKeyboardNonce(resolvedNonce);
   const fallbackNonce = deriveFallbackKeyboardNonce(user.telegramId);
-  const encodedFallbackNonce = fallbackNonce ? sanitiseKeyboardNonce(fallbackNonce) : undefined;
+  const encodedFallbackNonce = sanitiseKeyboardNonce(fallbackNonce);
 
   if (wrapped.user !== encodedUser) {
     return false;
-  }
-
-  if (wrapped.nonce === encodedNonce) {
-    return true;
-  }
-
-  if (encodedFallbackNonce && wrapped.nonce === encodedFallbackNonce) {
-    return true;
   }
 
   const sanitisedNonceMissing = !wrapped.nonce && !encodedNonce && !encodedFallbackNonce;
@@ -355,6 +347,14 @@ export const verifyCallbackForUser = (
       },
       'Accepting callback for user without nonce after sanitisation',
     );
+    return true;
+  }
+
+  if (wrapped.nonce === encodedNonce) {
+    return true;
+  }
+
+  if (encodedFallbackNonce && wrapped.nonce === encodedFallbackNonce) {
     return true;
   }
 

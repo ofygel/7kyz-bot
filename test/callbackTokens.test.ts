@@ -261,6 +261,14 @@ void (async () => {
       return hash;
     }) as typeof originalCreateHash;
 
+    const debugCalls: unknown[][] = [];
+    const originalDebug = logger.debug;
+    (logger as unknown as { debug: (...args: unknown[]) => void }).debug = (
+      ...args: unknown[]
+    ): void => {
+      debugCalls.push(args);
+    };
+
     try {
       const verified = verifyCallbackForUser(
         ctx as unknown as import('../src/bot/types').BotContext,
@@ -274,8 +282,18 @@ void (async () => {
         'Callback verification should accept callbacks without a nonce when sanitisation strips all characters',
       );
     } finally {
+      (logger as unknown as { debug: typeof originalDebug }).debug = originalDebug;
       (crypto as unknown as { createHash: typeof originalCreateHash }).createHash = originalCreateHash;
     }
+
+    assert.ok(
+      debugCalls.some(
+        ([, message]) =>
+          typeof message === 'string' &&
+          message === 'Accepting callback for user without nonce after sanitisation',
+      ),
+      'Accepting callbacks with sanitised nonces should be logged at debug level',
+    );
   }
 
   callbackStore.clear();
