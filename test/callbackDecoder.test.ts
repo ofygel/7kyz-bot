@@ -14,7 +14,10 @@ const menusPath = requireFn.resolve('../src/bot/ui/menus.ts');
 
 const callbackStore = new Map<string, StoredRecord>();
 let deleteCalls = 0;
-let renderMenuCalls = 0;
+const renderMenuInvocations: Array<{
+  ctx: any;
+  options?: { prompt?: string };
+}> = [];
 
 (requireFn.cache as Record<string, NodeModule | undefined>)[callbackMapPath] = {
   id: callbackMapPath,
@@ -42,8 +45,11 @@ let renderMenuCalls = 0;
   filename: menusPath,
   loaded: true,
   exports: {
-    renderMenuFor: async (): Promise<void> => {
-      renderMenuCalls += 1;
+    renderMenuFor: async (ctx: any, options?: { prompt?: string }): Promise<void> => {
+      renderMenuInvocations.push({ ctx, options });
+      if (typeof ctx.reply === 'function') {
+        await ctx.reply(options?.prompt ?? 'stub prompt');
+      }
     },
   },
 } as unknown as NodeModule;
@@ -67,6 +73,7 @@ void (async () => {
     CALLBACK_SURROGATE_ACTION,
   } = await import('../src/bot/services/callbackTokens');
   const { callbackDecoder } = await import('../src/bot/middlewares/callbackDecoder');
+  const { copy } = await import('../src/bot/copy');
 
   const secret = 'test-secret';
   const longRaw = `surrogate:${'x'.repeat(90)}`;
@@ -141,7 +148,7 @@ void (async () => {
     longRaw,
     'Callback payload state should reflect the original callback data',
   );
-  assert.equal(renderMenuCalls, 0, 'Valid callbacks should not trigger menu rendering');
+  assert.equal(renderMenuInvocations.length, 0, 'Valid callbacks should not trigger menu rendering');
 
   // Expire the stored payload and ensure it is cleaned up on access.
   const existing = callbackStore.get(surrogate);
@@ -153,12 +160,19 @@ void (async () => {
 
   let expiredNextCalled = false;
   let expiredAnswered = false;
+  let expiredAnswerText: string | undefined;
+  const expiredReplies: unknown[][] = [];
 
   const expiredCtx: any = {
+    chat: { id: 123, type: 'private' },
     callbackQuery: { data: surrogate },
     state: {},
-    answerCbQuery: async (): Promise<void> => {
+    answerCbQuery: async (text?: string): Promise<void> => {
       expiredAnswered = true;
+      expiredAnswerText = text;
+    },
+    reply: async (...args: unknown[]): Promise<void> => {
+      expiredReplies.push(args);
     },
   };
 
@@ -168,9 +182,61 @@ void (async () => {
 
   assert.equal(expiredNextCalled, false, 'Expired surrogates should not reach downstream handlers');
   assert.equal(expiredAnswered, true, 'Expired surrogates should inform the user via answerCbQuery');
-  assert.equal(renderMenuCalls > 0, true, 'Expired surrogates should trigger menu rendering');
+  assert.equal(
+    expiredAnswerText,
+    copy.expiredButtonToast ?? copy.expiredButton,
+    'Expired callbacks should use the configured toast text',
+  );
+  assert.equal(expiredReplies.length, 1, 'Expired private callbacks should trigger a menu reply');
+  assert.equal(
+    renderMenuInvocations.length > 0,
+    true,
+    'Expired surrogates should trigger menu rendering in private chats',
+  );
+  assert.equal(
+    renderMenuInvocations.at(-1)?.options?.prompt,
+    copy.expiredButton,
+    'Menu rendering should use the expired-button prompt',
+  );
   assert.equal(callbackStore.has(surrogate), false, 'Expired surrogate entries should be deleted');
   assert.ok(deleteCalls > 0, 'Expired surrogates should be purged from storage');
+
+  let channelNextCalled = false;
+  let channelAnswered = false;
+  let channelAnswerText: string | undefined;
+  const channelReplies: unknown[][] = [];
+  const renderCallsBeforeChannel = renderMenuInvocations.length;
+
+  const channelCtx: any = {
+    chat: { id: -100123, type: 'channel' },
+    callbackQuery: { data: surrogate },
+    state: {},
+    answerCbQuery: async (text?: string): Promise<void> => {
+      channelAnswered = true;
+      channelAnswerText = text;
+    },
+    reply: async (...args: unknown[]): Promise<void> => {
+      channelReplies.push(args);
+    },
+  };
+
+  await middleware(channelCtx, async () => {
+    channelNextCalled = true;
+  });
+
+  assert.equal(channelNextCalled, false, 'Expired channel callbacks should not reach downstream handlers');
+  assert.equal(channelAnswered, true, 'Channel callbacks should still be answered via toast');
+  assert.equal(
+    channelAnswerText,
+    copy.expiredButtonToast ?? copy.expiredButton,
+    'Channel callbacks should reuse the expired-button toast copy',
+  );
+  assert.equal(channelReplies.length, 0, 'Channel callbacks must not trigger reply-based menus');
+  assert.equal(
+    renderMenuInvocations.length,
+    renderCallsBeforeChannel,
+    'Channel callbacks must not invoke menu rendering',
+  );
 
   console.log('callback decoder surrogate test: OK');
 })();

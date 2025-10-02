@@ -3,6 +3,7 @@ import type { ExecutorRole } from './types';
 export const copy = {
   inactivityNudge: '⏳ Похоже, вы отвлеклись. Продолжить можно кнопками ниже.',
   expiredButton: 'Кнопка устарела — отправляю актуальное меню…',
+  expiredButtonToast: 'Кнопка устарела.',
   tooFrequent: 'Слишком часто. Попробуйте через секунду.',
   waiting: 'Принял. Обрабатываю…',
   undoExpired: 'Время на отмену вышло.',
