@@ -43,10 +43,10 @@ export const ensureClientRole = async ({
   firstName,
   lastName,
   phone,
-}: EnsureClientRoleParams): Promise<void> => {
+}: EnsureClientRoleParams): Promise<string> => {
   const keyboardNonce = generateKeyboardNonce();
 
-  await pool.query(
+  const result = await pool.query(
     `
       INSERT INTO users (
         tg_id,
@@ -87,6 +87,7 @@ export const ensureClientRole = async ({
         last_menu_role = 'client',
         keyboard_nonce = COALESCE(users.keyboard_nonce, EXCLUDED.keyboard_nonce),
         updated_at = now()
+      RETURNING keyboard_nonce
     `,
     [
       telegramId,
@@ -101,6 +102,14 @@ export const ensureClientRole = async ({
       keyboardNonce,
     ],
   );
+
+  const persistedKeyboardNonce = result.rows[0]?.keyboard_nonce;
+
+  if (typeof persistedKeyboardNonce !== 'string') {
+    throw new Error('Failed to resolve keyboard nonce for client role');
+  }
+
+  return persistedKeyboardNonce;
 };
 
 export interface UpdateUserPhoneParams {

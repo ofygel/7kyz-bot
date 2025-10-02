@@ -325,9 +325,24 @@ export const verifyCallbackForUser = (
   }
 
   const encodedUser = safeBase36(user.telegramId);
-  const encodedNonce = sanitiseKeyboardNonce(resolveKeyboardNonce(user));
+  const resolvedNonce = resolveKeyboardNonce(user);
+  const encodedNonce = sanitiseKeyboardNonce(resolvedNonce);
+  const fallbackNonce = deriveFallbackKeyboardNonce(user.telegramId);
+  const encodedFallbackNonce = fallbackNonce ? sanitiseKeyboardNonce(fallbackNonce) : undefined;
 
-  return wrapped.user === encodedUser && wrapped.nonce === encodedNonce;
+  if (wrapped.user !== encodedUser) {
+    return false;
+  }
+
+  if (wrapped.nonce === encodedNonce) {
+    return true;
+  }
+
+  if (encodedFallbackNonce && wrapped.nonce === encodedFallbackNonce) {
+    return true;
+  }
+
+  return false;
 };
 
 const hasCallbackData = (
