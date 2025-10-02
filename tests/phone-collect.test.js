@@ -80,6 +80,28 @@ const createMockRedis = () => {
   };
 };
 
+const createAuthSnapshot = (overrides = {}) => ({
+  role: 'guest',
+  executorKind: undefined,
+  status: 'guest',
+  phoneVerified: false,
+  verifyStatus: 'none',
+  subscriptionStatus: 'none',
+  userIsVerified: false,
+  executor: {
+    verifiedRoles: { courier: false, driver: false },
+    hasActiveSubscription: false,
+    isVerified: false,
+  },
+  isModerator: false,
+  subscriptionExpiresAt: undefined,
+  executorPlan: undefined,
+  city: undefined,
+  hasActiveOrder: false,
+  stale: false,
+  ...overrides,
+});
+
 const loadPhoneCollect = () => {
   delete require.cache[require.resolve('../src/bot/flows/common/phoneCollect')];
   return require('../src/bot/flows/common/phoneCollect');
@@ -243,6 +265,90 @@ test('savePhone enqueues update when database is unavailable and flush later suc
 
     assert.equal(calls.length, 2, 'queued update retried once');
     assert.equal(mockRedis.getList(queueKey).length, 0, 'queue should be empty after flush');
+  } finally {
+    redisModule.getRedisClient = originalGetRedisClient;
+    phoneVerificationModule.persistPhoneVerification = originalPersist;
+    executorAccessModule.primeExecutorOrderAccessCache = originalPrime;
+    reportsModule.reportUserRegistration = originalReportRegistration;
+    reportsModule.reportPhoneVerified = originalReportPhone;
+  }
+});
+
+test('savePhone treats authorised user with stale session as new verification', { concurrency: 1 }, async (t) => {
+  const mockRedis = createMockRedis();
+  const originalGetRedisClient = redisModule.getRedisClient;
+  redisModule.getRedisClient = () => mockRedis;
+
+  const calls = [];
+  let sessionPhoneVerifiedDuringPersist;
+  let snapshotPhoneVerifiedDuringPersist;
+  const ctx = {
+    chat: { type: 'private' },
+    from: { id: 789 },
+    message: { contact: { phone_number: '+7 (777) 000-00-00', user_id: 789 } },
+    session: {
+      awaitingPhone: true,
+      ephemeralMessages: [],
+      user: { id: 789, phoneVerified: true },
+      authSnapshot: createAuthSnapshot({ phoneVerified: true }),
+    },
+    auth: {
+      user: {
+        telegramId: 789,
+        phoneVerified: false,
+        status: 'guest',
+        role: 'guest',
+        isBlocked: false,
+      },
+    },
+    state: {},
+  };
+
+  const originalPersist = phoneVerificationModule.persistPhoneVerification;
+  phoneVerificationModule.persistPhoneVerification = async (payload) => {
+    sessionPhoneVerifiedDuringPersist = ctx.session.user?.phoneVerified;
+    snapshotPhoneVerifiedDuringPersist = ctx.session.authSnapshot?.phoneVerified;
+    calls.push(payload);
+  };
+
+  const cacheCalls = [];
+  const originalPrime = executorAccessModule.primeExecutorOrderAccessCache;
+  executorAccessModule.primeExecutorOrderAccessCache = async (executorId, record, options) => {
+    cacheCalls.push({ executorId, record, options });
+    await originalPrime(executorId, record, options);
+  };
+
+  let registrations = 0;
+  let verifications = 0;
+  const originalReportRegistration = reportsModule.reportUserRegistration;
+  const originalReportPhone = reportsModule.reportPhoneVerified;
+  reportsModule.reportUserRegistration = async () => {
+    registrations += 1;
+  };
+  reportsModule.reportPhoneVerified = async () => {
+    verifications += 1;
+  };
+
+  const { savePhone } = loadPhoneCollect();
+
+  try {
+    await savePhone(ctx, async () => {});
+
+    assert.equal(calls.length, 1, 'should persist phone once');
+    assert.equal(sessionPhoneVerifiedDuringPersist, false);
+    assert.equal(snapshotPhoneVerifiedDuringPersist, false);
+    assert.equal(ctx.session.awaitingPhone, false);
+    assert.equal(ctx.session.phoneNumber, '+7 (777) 000-00-00');
+    assert.equal(ctx.session.user.phoneVerified, true);
+    assert.equal(ctx.session.authSnapshot.phoneVerified, true);
+    assert.equal(ctx.auth.user.phoneVerified, true);
+    assert.equal(ctx.auth.user.phone, '+7 (777) 000-00-00');
+    assert.equal(ctx.auth.user.status, 'onboarding');
+    assert.equal(ctx.state.phoneJustVerified, true);
+    assert.equal(registrations, 1);
+    assert.equal(verifications, 1);
+    assert.equal(cacheCalls.length, 1, 'cache primed once');
+    assert.equal(cacheCalls[0].executorId, 789);
   } finally {
     redisModule.getRedisClient = originalGetRedisClient;
     phoneVerificationModule.persistPhoneVerification = originalPersist;

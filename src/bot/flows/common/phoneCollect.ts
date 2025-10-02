@@ -12,7 +12,7 @@ import {
 import { persistPhoneVerification } from '../../../db/phoneVerification';
 import { enqueueUserPhoneUpdate } from '../../../infra/userPhoneQueue';
 import { primeExecutorOrderAccessCache } from '../../services/executorAccess';
-import type { BotContext } from '../../types';
+import type { AuthStateSnapshot, BotContext } from '../../types';
 import { ui } from '../../ui';
 
 export const PHONE_HELP_BUTTON_LABEL = 'Помощь';
@@ -36,6 +36,27 @@ const PHONE_FOREIGN_CONTACT_TEXT = [
 const PHONE_STEP_ACTIONS = ['📲 Поделиться контактом', PHONE_HELP_BUTTON_LABEL, PHONE_STATUS_BUTTON_LABEL];
 
 const EXECUTOR_ACCESS_CACHE_TTL_SECONDS = config.bot.executorAccessCacheTtlSeconds; // Use configured TTL to survive extended outages.
+
+const createSessionAuthSnapshot = (): AuthStateSnapshot => ({
+  role: 'guest',
+  executorKind: undefined,
+  status: 'guest',
+  phoneVerified: false,
+  verifyStatus: 'none',
+  subscriptionStatus: 'none',
+  userIsVerified: false,
+  executor: {
+    verifiedRoles: { courier: false, driver: false },
+    hasActiveSubscription: false,
+    isVerified: false,
+  },
+  isModerator: false,
+  subscriptionExpiresAt: undefined,
+  executorPlan: undefined,
+  city: undefined,
+  hasActiveOrder: false,
+  stale: false,
+});
 
 const rememberEphemeralMessage = (ctx: BotContext, messageId?: number): void => {
   if (!messageId) {
@@ -208,8 +229,21 @@ export const savePhone: MiddlewareFn<BotContext> = async (ctx, next) => {
     return;
   }
 
+  const sessionAuthSnapshot =
+    ctx.session.authSnapshot ?? (ctx.session.authSnapshot = createSessionAuthSnapshot());
   const phone = normalisePhone(contact.phone_number);
-  const wasVerified = Boolean(ctx.auth?.user?.phoneVerified || ctx.session.user?.phoneVerified);
+  const authPhoneVerified = ctx.auth?.user?.phoneVerified;
+
+  if (ctx.auth?.user && authPhoneVerified === false) {
+    if (ctx.session.user) {
+      ctx.session.user = { ...ctx.session.user, phoneVerified: false };
+    } else {
+      ctx.session.user = { id: fromId, phoneVerified: false };
+    }
+    sessionAuthSnapshot.phoneVerified = false;
+  }
+
+  const wasVerified = Boolean(authPhoneVerified ?? sessionAuthSnapshot.phoneVerified);
 
   try {
     await persistPhoneVerification({ telegramId: fromId, phone });
@@ -230,6 +264,7 @@ export const savePhone: MiddlewareFn<BotContext> = async (ctx, next) => {
   ctx.session.phoneNumber = phone;
   const existingUser = ctx.session.user ?? { id: fromId };
   ctx.session.user = { ...existingUser, phoneVerified: true };
+  sessionAuthSnapshot.phoneVerified = true;
 
   if (ctx.auth?.user) {
     ctx.auth.user.phone = phone;
