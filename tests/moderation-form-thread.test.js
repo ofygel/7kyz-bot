@@ -12,6 +12,7 @@ function ensureEnv(key, value) {
 function enableTestEnv() {
   ensureEnv('BOT_TOKEN', 'test-bot-token');
   ensureEnv('DATABASE_URL', 'postgres://user:pass@localhost:5432/db');
+  ensureEnv('HMAC_SECRET', 'secret');
   ensureEnv('WEBHOOK_DOMAIN', 'example.com');
   ensureEnv('WEBHOOK_SECRET', 'secret');
   ensureEnv('BIND_VERIFY_CHANNEL_ID', '777000');
@@ -34,11 +35,14 @@ function loadFormCommandsModule() {
 test('registerFormCommand configures verify channel chat commands once', async () => {
   const { registerFormCommand } = loadFormCommandsModule();
 
+  const chatId = Number.parseInt(process.env.BIND_VERIFY_CHANNEL_ID, 10);
+
   const bot = {
     command: () => undefined,
     on: () => undefined,
     action: () => undefined,
     telegram: {
+      getChat: async () => ({ id: chatId, type: 'supergroup' }),
       setMyCommands: async () => undefined,
       setChatMenuButton: async () => undefined,
     },
@@ -63,7 +67,6 @@ test('registerFormCommand configures verify channel chat commands once', async (
   assert.equal(setMyCommandsCalls.length, 1);
 
   const [commandsArg, optionsArg] = setMyCommandsCalls[0];
-  const chatId = Number.parseInt(process.env.BIND_VERIFY_CHANNEL_ID, 10);
   assert.equal(optionsArg.scope.chat_id, chatId);
 
   const commandNames = commandsArg.map((entry) => entry.command);
