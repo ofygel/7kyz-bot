@@ -89,7 +89,9 @@ const ensureVerifyChannelCommands = (bot: Telegraf<BotContext>): void => {
 
     try {
       await setChatCommands(bot.telegram, chatId, VERIFY_CHANNEL_COMMANDS);
+
       logger.info({ chatId }, 'Verify channel commands registered');
+
     } catch (error) {
       logger.error({ err: error, chatId }, 'Failed to register verify channel commands');
     }

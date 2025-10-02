@@ -25,6 +25,9 @@ are missing or blank.
   endpoint (for example, `https://bot.example.com`).
 - `WEBHOOK_SECRET` – Secret token appended to the webhook path to prevent unsolicited
   requests. Use a sufficiently long random string.
+- `BIND_VERIFY_CHANNEL_ID` – Numeric identifier of the CRM moderation chat bound as
+  `bind_verify_channel`. Provide the full Telegram chat ID (including the `-100`
+  prefix for supergroups) to ensure verification requests land in the right place.
 
 ## Database options
 
