@@ -166,7 +166,7 @@ const postReminderMessage = async (
   reminderIndex: number,
 ): Promise<void> => {
   const message = buildReminderMessage(plan, reminderIndex);
-  const keyboard = buildExecutorPlanActionKeyboard(plan);
+  const keyboard = await buildExecutorPlanActionKeyboard(plan);
 
   try {
     await telegram.sendMessage(plan.chatId, message, {

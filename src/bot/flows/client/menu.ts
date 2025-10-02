@@ -234,7 +234,7 @@ export const showMenu = async (ctx: BotContext, prompt?: string): Promise<void> 
       [{ label: copy.refresh, action: CLIENT_MENU_REFRESH_ACTION }],
     ];
 
-    const keyboard = bindInlineKeyboardToUser(ctx, buildInlineKeyboard(rows));
+    const keyboard = await bindInlineKeyboardToUser(ctx, buildInlineKeyboard(rows));
 
     try {
       await ctx.editMessageText(header, { reply_markup: keyboard });
