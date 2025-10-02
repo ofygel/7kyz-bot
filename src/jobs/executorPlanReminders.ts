@@ -243,18 +243,15 @@ const handleReminderJob = async (data: ReminderJobData): Promise<void> => {
 };
 
 const ensureQueue = (): boolean => {
-  if (!config.session.redis) {
-    logger.warn('Redis is not configured; executor plan reminders are disabled');
-    return false;
+  const redisConfig = config.session.redis;
+  if (!redisConfig) {
+    throw new Error(
+      'Redis configuration is missing. Set REDIS_URL to enable executor plan reminders.',
+    );
   }
 
   if (queue && worker) {
     return true;
-  }
-
-  const redisConfig = config.session.redis;
-  if (!redisConfig) {
-    return false;
   }
 
   const prefix = `${redisConfig.keyPrefix ?? 'bot:'}bull`;
