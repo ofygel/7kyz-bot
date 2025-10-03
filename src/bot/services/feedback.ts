@@ -2,7 +2,15 @@ import { logger } from '../../config';
 import { copy } from '../copy';
 import type { BotContext } from '../types';
 
-export const sendProcessingFeedback = async (ctx: BotContext): Promise<void> => {
+interface ProcessingFeedbackOptions {
+  skipAnswerCbQuery?: boolean;
+}
+
+export const sendProcessingFeedback = async (
+  ctx: BotContext,
+  options?: ProcessingFeedbackOptions,
+): Promise<void> => {
+  const skipAnswerCbQuery = options?.skipAnswerCbQuery ?? false;
   const chatId = ctx.chat?.id ?? (ctx.callbackQuery && 'message' in ctx.callbackQuery
     ? ctx.callbackQuery.message?.chat?.id
     : undefined);
@@ -15,7 +23,7 @@ export const sendProcessingFeedback = async (ctx: BotContext): Promise<void> => 
     }
   }
 
-  if (typeof ctx.answerCbQuery === 'function' && ctx.callbackQuery) {
+  if (!skipAnswerCbQuery && typeof ctx.answerCbQuery === 'function' && ctx.callbackQuery) {
     try {
       await ctx.answerCbQuery(copy.waiting);
     } catch (error) {

@@ -32,6 +32,7 @@ import {
 } from '../services/reports';
 import { withIdempotency } from '../middlewares/idempotency';
 import { sendProcessingFeedback } from '../services/feedback';
+import { answerCallbackQuerySafely } from '../utils/callbacks';
 import { getExecutorOrderAccess } from '../services/executorAccess';
 
 export type PublishOrderStatus = 'published' | 'already_published' | 'missing_channel';
@@ -860,13 +861,13 @@ const handleOrderDecision = async (
 ): Promise<void> => {
   const message = ctx.callbackQuery?.message;
   if (!message || !('message_id' in message) || !message.chat) {
-    await ctx.answerCbQuery('Не удалось обработать действие.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось обработать действие.');
     return;
   }
 
   const authorizedChatId = await resolveAuthorizedChatId(orderId, message.chat);
   if (authorizedChatId === null) {
-    await ctx.answerCbQuery('Действие доступно только в личном чате с ботом.', { show_alert: true });
+    await answerCallbackQuerySafely(ctx, 'Действие доступно только в личном чате с ботом.', { show_alert: true });
     return;
   }
 
@@ -877,26 +878,26 @@ const handleOrderDecision = async (
   let actorCity: AppCity | undefined;
 
   if (decision === 'decline' && typeof actorId !== 'number') {
-    await ctx.answerCbQuery('Не удалось определить пользователя.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось определить пользователя.');
     return;
   }
 
   if (decision === 'accept' && typeof actorId !== 'number') {
-    await ctx.answerCbQuery('Не удалось определить пользователя.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось определить пользователя.');
     return;
   }
 
   if (decision === 'accept') {
     actorCity = ctx.auth?.user.citySelected;
     if (!actorCity) {
-      await ctx.answerCbQuery('Сначала выберите город командой /city в личном чате с ботом.', {
+      await answerCallbackQuerySafely(ctx, 'Сначала выберите город командой /city в личном чате с ботом.', {
         show_alert: true,
       });
       return;
     }
   }
 
-  await sendProcessingFeedback(ctx);
+  await sendProcessingFeedback(ctx, { skipAnswerCbQuery: true });
 
   let result: OrderActionOutcome;
   try {
@@ -908,12 +909,12 @@ const handleOrderDecision = async (
     });
   } catch (error) {
     logger.error({ err: error, orderId }, 'Failed to apply order channel decision');
-    await ctx.answerCbQuery('Не удалось обработать действие. Попробуйте позже.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось обработать действие. Попробуйте позже.');
     return;
   }
 
   if (result.outcome === 'not_found') {
-    await ctx.answerCbQuery('Заказ не найден или уже удалён.');
+    await answerCallbackQuerySafely(ctx, 'Заказ не найден или уже удалён.');
     return;
   }
 
@@ -927,30 +928,30 @@ const handleOrderDecision = async (
   switch (result.outcome) {
     case 'already_processed': {
       await ensureMessageReflectsState(ctx.telegram, state);
-      await ctx.answerCbQuery(buildAlreadyProcessedResponse(state));
+      await answerCallbackQuerySafely(ctx, buildAlreadyProcessedResponse(state));
       return;
     }
     case 'limit_exceeded': {
-      await ctx.answerCbQuery('У вас уже есть активный заказ. Сначала завершите его.', {
+      await answerCallbackQuerySafely(ctx, 'У вас уже есть активный заказ. Сначала завершите его.', {
         show_alert: true,
       });
       return;
     }
     case 'city_mismatch': {
       await ensureMessageReflectsState(ctx.telegram, state);
-      await ctx.answerCbQuery('⚠️ Заказ не из вашего города.', { show_alert: true });
+      await answerCallbackQuerySafely(ctx, '⚠️ Заказ не из вашего города.', { show_alert: true });
       return;
     }
     case 'forbidden_kind': {
-      await ctx.answerCbQuery('🚫 Этот заказ доступен только водителям.', { show_alert: true });
+      await answerCallbackQuerySafely(ctx, '🚫 Этот заказ доступен только водителям.', { show_alert: true });
       return;
     }
     case 'phone_required': {
-      await ctx.answerCbQuery(copy.orderPhoneRequired, { show_alert: true });
+      await answerCallbackQuerySafely(ctx, copy.orderPhoneRequired, { show_alert: true });
       return;
     }
     case 'executor_blocked': {
-      await ctx.answerCbQuery(copy.orderAccessBlocked, { show_alert: true });
+      await answerCallbackQuerySafely(ctx, copy.orderAccessBlocked, { show_alert: true });
       return;
     }
     case 'claimed': {
@@ -980,18 +981,18 @@ const handleOrderDecision = async (
         answerMessage = `${copy.orderAcceptedToast} Не удалось отправить детали в личные сообщения.`;
       }
 
-      await ctx.answerCbQuery(answerMessage);
+      await answerCallbackQuerySafely(ctx, answerMessage);
 
       await reportOrderClaimed(ctx.telegram, result.order, toUserIdentity(ctx.from));
       return;
     }
     case 'dismissed': {
       await clearInlineKeyboard(ctx.telegram, orderId, chatId, messageId);
-      await ctx.answerCbQuery('Заказ отмечен как недоступный.');
+      await answerCallbackQuerySafely(ctx, 'Заказ отмечен как недоступный.');
       return;
     }
     case 'already_dismissed': {
-      await ctx.answerCbQuery('Вы уже отметили этот заказ как недоступный.');
+      await answerCallbackQuerySafely(ctx, 'Вы уже отметили этот заказ как недоступный.');
       return;
     }
     default:
@@ -1002,19 +1003,19 @@ const handleOrderDecision = async (
 const handleOrderRelease = async (ctx: BotContext, orderId: number): Promise<void> => {
   const message = ctx.callbackQuery?.message;
   if (!message || !('message_id' in message) || !message.chat) {
-    await ctx.answerCbQuery('Не удалось обработать действие.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось обработать действие.');
     return;
   }
 
   const authorizedChatId = await resolveAuthorizedChatId(orderId, message.chat);
   if (authorizedChatId === null) {
-    await ctx.answerCbQuery('Действие доступно только в личном чате с ботом.', { show_alert: true });
+    await answerCallbackQuerySafely(ctx, 'Действие доступно только в личном чате с ботом.', { show_alert: true });
     return;
   }
 
   const moderatorId = ctx.from?.id;
   if (typeof moderatorId !== 'number') {
-    await ctx.answerCbQuery('Не удалось определить пользователя.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось определить пользователя.');
     return;
   }
 
@@ -1025,19 +1026,19 @@ const handleOrderRelease = async (ctx: BotContext, orderId: number): Promise<voi
     result = await processOrderRelease(orderId, moderatorId);
   } catch (error) {
     logger.error({ err: error, orderId }, 'Failed to process order release');
-    await ctx.answerCbQuery('Не удалось отменить заказ. Попробуйте позже.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось отменить заказ. Попробуйте позже.');
     return;
   }
 
   switch (result.outcome) {
     case 'not_found':
-      await ctx.answerCbQuery('Заказ не найден или уже удалён.');
+      await answerCallbackQuerySafely(ctx, 'Заказ не найден или уже удалён.');
       return;
     case 'not_claimed':
-      await ctx.answerCbQuery('Заказ уже недоступен для отмены.');
+      await answerCallbackQuerySafely(ctx, 'Заказ уже недоступен для отмены.');
       return;
     case 'forbidden':
-      await ctx.answerCbQuery(copy.noAccess);
+      await answerCallbackQuerySafely(ctx, copy.noAccess);
       return;
     case 'released':
       await removeOrderState(ctx.telegram, orderId);
@@ -1091,7 +1092,7 @@ const handleOrderRelease = async (ctx: BotContext, orderId: number): Promise<voi
 
       rememberUndoState(releaseUndoStates, orderId, moderatorId);
 
-      await ctx.answerCbQuery(answerText);
+      await answerCallbackQuerySafely(ctx, answerText);
       const clientId = result.order.clientId;
       if (typeof clientId === 'number') {
         const shortId = result.order.shortId ?? result.order.id.toString();
@@ -1129,7 +1130,7 @@ const handleOrderRelease = async (ctx: BotContext, orderId: number): Promise<voi
       );
       return;
     default:
-      await ctx.answerCbQuery('Не удалось отменить заказ.');
+      await answerCallbackQuerySafely(ctx, 'Не удалось отменить заказ.');
       return;
   }
 };
@@ -1137,34 +1138,34 @@ const handleOrderRelease = async (ctx: BotContext, orderId: number): Promise<voi
 const handleUndoOrderRelease = async (ctx: BotContext, orderId: number): Promise<void> => {
   const message = ctx.callbackQuery?.message;
   if (!message || !('chat' in message) || !message.chat) {
-    await ctx.answerCbQuery('Действие доступно только в личном чате с ботом.', { show_alert: true });
+    await answerCallbackQuerySafely(ctx, 'Действие доступно только в личном чате с ботом.', { show_alert: true });
     return;
   }
 
   const authorizedChatId = await resolveAuthorizedChatId(orderId, message.chat);
   if (authorizedChatId === null) {
-    await ctx.answerCbQuery('Действие доступно только в личном чате с ботом.', { show_alert: true });
+    await answerCallbackQuerySafely(ctx, 'Действие доступно только в личном чате с ботом.', { show_alert: true });
     return;
   }
 
   const preview = peekUndoState(releaseUndoStates, orderId);
   if (!preview) {
-    await ctx.answerCbQuery(copy.undoExpired);
+    await answerCallbackQuerySafely(ctx, copy.undoExpired);
     return;
   }
 
   const executorId = ctx.from?.id;
   if (typeof executorId !== 'number' || executorId !== preview.executorId) {
-    await ctx.answerCbQuery(copy.noAccess);
+    await answerCallbackQuerySafely(ctx, copy.noAccess);
     return;
   }
 
   if (!consumeUndoState(releaseUndoStates, orderId)) {
-    await ctx.answerCbQuery(copy.undoExpired);
+    await answerCallbackQuerySafely(ctx, copy.undoExpired);
     return;
   }
 
-  await sendProcessingFeedback(ctx);
+  await sendProcessingFeedback(ctx, { skipAnswerCbQuery: true });
 
   let result: UndoReleaseOutcome;
   try {
@@ -1186,13 +1187,13 @@ const handleUndoOrderRelease = async (ctx: BotContext, orderId: number): Promise
     );
   } catch (error) {
     logger.error({ err: error, orderId }, 'Failed to undo order release');
-    await ctx.answerCbQuery(copy.undoUnavailable);
+    await answerCallbackQuerySafely(ctx, copy.undoUnavailable);
     return;
   }
 
   switch (result.outcome) {
     case 'not_found': {
-      await ctx.answerCbQuery('Заказ не найден.');
+      await answerCallbackQuerySafely(ctx, 'Заказ не найден.');
       return;
     }
     case 'already_taken': {
@@ -1209,7 +1210,7 @@ const handleUndoOrderRelease = async (ctx: BotContext, orderId: number): Promise
           'Failed to remove undo markup after failed release undo',
         );
       }
-      await ctx.answerCbQuery(copy.orderUndoReleaseFailed, { show_alert: true });
+      await answerCallbackQuerySafely(ctx, copy.orderUndoReleaseFailed, { show_alert: true });
       return;
     }
     case 'reclaimed': {
@@ -1235,7 +1236,7 @@ const handleUndoOrderRelease = async (ctx: BotContext, orderId: number): Promise
         }
       }
 
-      await ctx.answerCbQuery(copy.orderUndoReleaseRestored);
+      await answerCallbackQuerySafely(ctx, copy.orderUndoReleaseRestored);
 
       const clientId = result.order.clientId;
       if (typeof clientId === 'number') {
@@ -1254,41 +1255,41 @@ const handleUndoOrderRelease = async (ctx: BotContext, orderId: number): Promise
       return;
     }
     default:
-      await ctx.answerCbQuery(copy.undoUnavailable);
+      await answerCallbackQuerySafely(ctx, copy.undoUnavailable);
   }
 };
 
 const handleUndoOrderCompletion = async (ctx: BotContext, orderId: number): Promise<void> => {
   const message = ctx.callbackQuery?.message;
   if (!message || !('chat' in message) || !message.chat) {
-    await ctx.answerCbQuery('Действие доступно только в личном чате с ботом.', { show_alert: true });
+    await answerCallbackQuerySafely(ctx, 'Действие доступно только в личном чате с ботом.', { show_alert: true });
     return;
   }
 
   const authorizedChatId = await resolveAuthorizedChatId(orderId, message.chat);
   if (authorizedChatId === null) {
-    await ctx.answerCbQuery('Действие доступно только в личном чате с ботом.', { show_alert: true });
+    await answerCallbackQuerySafely(ctx, 'Действие доступно только в личном чате с ботом.', { show_alert: true });
     return;
   }
 
   const preview = peekUndoState(completionUndoStates, orderId);
   if (!preview) {
-    await ctx.answerCbQuery(copy.undoExpired);
+    await answerCallbackQuerySafely(ctx, copy.undoExpired);
     return;
   }
 
   const executorId = ctx.from?.id;
   if (typeof executorId !== 'number' || executorId !== preview.executorId) {
-    await ctx.answerCbQuery(copy.noAccess);
+    await answerCallbackQuerySafely(ctx, copy.noAccess);
     return;
   }
 
   if (!consumeUndoState(completionUndoStates, orderId)) {
-    await ctx.answerCbQuery(copy.undoExpired);
+    await answerCallbackQuerySafely(ctx, copy.undoExpired);
     return;
   }
 
-  await sendProcessingFeedback(ctx);
+  await sendProcessingFeedback(ctx, { skipAnswerCbQuery: true });
 
   let result: UndoCompletionOutcome;
   try {
@@ -1314,13 +1315,13 @@ const handleUndoOrderCompletion = async (ctx: BotContext, orderId: number): Prom
     );
   } catch (error) {
     logger.error({ err: error, orderId }, 'Failed to undo order completion');
-    await ctx.answerCbQuery(copy.undoUnavailable);
+    await answerCallbackQuerySafely(ctx, copy.undoUnavailable);
     return;
   }
 
   switch (result.outcome) {
     case 'not_found': {
-      await ctx.answerCbQuery('Заказ не найден.');
+      await answerCallbackQuerySafely(ctx, 'Заказ не найден.');
       return;
     }
     case 'invalid': {
@@ -1335,7 +1336,7 @@ const handleUndoOrderCompletion = async (ctx: BotContext, orderId: number): Prom
           'Failed to remove undo markup after failed completion undo',
         );
       }
-      await ctx.answerCbQuery(copy.orderUndoCompleteFailed, { show_alert: true });
+      await answerCallbackQuerySafely(ctx, copy.orderUndoCompleteFailed, { show_alert: true });
       return;
     }
     case 'restored': {
@@ -1359,7 +1360,7 @@ const handleUndoOrderCompletion = async (ctx: BotContext, orderId: number): Prom
         }
       }
 
-      await ctx.answerCbQuery(copy.orderUndoCompleteRestored);
+      await answerCallbackQuerySafely(ctx, copy.orderUndoCompleteRestored);
 
       const clientId = result.order.clientId;
       if (typeof clientId === 'number') {
@@ -1377,26 +1378,26 @@ const handleUndoOrderCompletion = async (ctx: BotContext, orderId: number): Prom
       return;
     }
     default:
-      await ctx.answerCbQuery(copy.undoUnavailable);
+      await answerCallbackQuerySafely(ctx, copy.undoUnavailable);
   }
 };
 
 const handleOrderCompletion = async (ctx: BotContext, orderId: number): Promise<void> => {
   const message = ctx.callbackQuery?.message;
   if (!message || !('message_id' in message) || !message.chat) {
-    await ctx.answerCbQuery('Не удалось обработать действие.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось обработать действие.');
     return;
   }
 
   const authorizedChatId = await resolveAuthorizedChatId(orderId, message.chat);
   if (authorizedChatId === null) {
-    await ctx.answerCbQuery('Действие доступно только в личном чате с ботом.', { show_alert: true });
+    await answerCallbackQuerySafely(ctx, 'Действие доступно только в личном чате с ботом.', { show_alert: true });
     return;
   }
 
   const executorId = ctx.from?.id;
   if (typeof executorId !== 'number') {
-    await ctx.answerCbQuery('Не удалось определить пользователя.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось определить пользователя.');
     return;
   }
 
@@ -1407,19 +1408,19 @@ const handleOrderCompletion = async (ctx: BotContext, orderId: number): Promise<
     result = await processOrderCompletion(orderId, executorId);
   } catch (error) {
     logger.error({ err: error, orderId }, 'Failed to complete order');
-    await ctx.answerCbQuery('Не удалось завершить заказ. Попробуйте позже.');
+    await answerCallbackQuerySafely(ctx, 'Не удалось завершить заказ. Попробуйте позже.');
     return;
   }
 
   switch (result.outcome) {
     case 'not_found':
-      await ctx.answerCbQuery('Заказ не найден или уже удалён.');
+      await answerCallbackQuerySafely(ctx, 'Заказ не найден или уже удалён.');
       return;
     case 'not_claimed':
-      await ctx.answerCbQuery('Заказ уже недоступен для завершения.');
+      await answerCallbackQuerySafely(ctx, 'Заказ уже недоступен для завершения.');
       return;
     case 'forbidden':
-      await ctx.answerCbQuery(copy.noAccess);
+      await answerCallbackQuerySafely(ctx, copy.noAccess);
       return;
     case 'completed': {
       const baseMessage = buildOrderDetailsMessage(result.order);
@@ -1455,7 +1456,7 @@ const handleOrderCompletion = async (ctx: BotContext, orderId: number): Promise<
 
       rememberUndoState(completionUndoStates, orderId, executorId);
 
-      await ctx.answerCbQuery('Заказ завершён. Спасибо!');
+      await answerCallbackQuerySafely(ctx, 'Заказ завершён. Спасибо!');
       const clientId = result.order.clientId;
       if (typeof clientId === 'number') {
         const shortId = result.order.shortId ?? result.order.id.toString();
@@ -1476,7 +1477,7 @@ const handleOrderCompletion = async (ctx: BotContext, orderId: number): Promise<
       return;
     }
     default:
-      await ctx.answerCbQuery('Не удалось завершить заказ.');
+      await answerCallbackQuerySafely(ctx, 'Не удалось завершить заказ.');
       return;
   }
 };
@@ -1487,7 +1488,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
     const idText = match?.[1];
     const orderId = idText ? Number.parseInt(idText, 10) : NaN;
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      await ctx.answerCbQuery('Некорректный идентификатор заказа.');
+      await answerCallbackQuerySafely(ctx, 'Некорректный идентификатор заказа.');
       return;
     }
 
@@ -1495,7 +1496,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
       handleOrderDecision(ctx, orderId, 'accept'),
     );
     if (guard.status === 'duplicate') {
-      await ctx.answerCbQuery('Запрос уже обработан.');
+      await answerCallbackQuerySafely(ctx, 'Запрос уже обработан.');
     }
   });
 
@@ -1504,7 +1505,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
     const idText = match?.[1];
     const orderId = idText ? Number.parseInt(idText, 10) : NaN;
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      await ctx.answerCbQuery('Некорректный идентификатор заказа.');
+      await answerCallbackQuerySafely(ctx, 'Некорректный идентификатор заказа.');
       return;
     }
 
@@ -1516,7 +1517,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
     const idText = match?.[1];
     const orderId = idText ? Number.parseInt(idText, 10) : NaN;
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      await ctx.answerCbQuery('Некорректный идентификатор заказа.');
+      await answerCallbackQuerySafely(ctx, 'Некорректный идентификатор заказа.');
       return;
     }
 
@@ -1524,7 +1525,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
       handleOrderRelease(ctx, orderId),
     );
     if (guard.status === 'duplicate') {
-      await ctx.answerCbQuery('Запрос уже обработан.');
+      await answerCallbackQuerySafely(ctx, 'Запрос уже обработан.');
     }
   });
 
@@ -1533,7 +1534,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
     const idText = match?.[1];
     const orderId = idText ? Number.parseInt(idText, 10) : NaN;
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      await ctx.answerCbQuery('Некорректный идентификатор заказа.');
+      await answerCallbackQuerySafely(ctx, 'Некорректный идентификатор заказа.');
       return;
     }
 
@@ -1541,7 +1542,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
       handleOrderCompletion(ctx, orderId),
     );
     if (guard.status === 'duplicate') {
-      await ctx.answerCbQuery('Запрос уже обработан.');
+      await answerCallbackQuerySafely(ctx, 'Запрос уже обработан.');
     }
   });
 
@@ -1550,7 +1551,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
     const idText = match?.[1];
     const orderId = idText ? Number.parseInt(idText, 10) : NaN;
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      await ctx.answerCbQuery('Некорректный идентификатор заказа.');
+      await answerCallbackQuerySafely(ctx, 'Некорректный идентификатор заказа.');
       return;
     }
 
@@ -1558,7 +1559,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
       handleUndoOrderRelease(ctx, orderId),
     );
     if (guard.status === 'duplicate') {
-      await ctx.answerCbQuery('Запрос уже обработан.');
+      await answerCallbackQuerySafely(ctx, 'Запрос уже обработан.');
     }
   });
 
@@ -1567,7 +1568,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
     const idText = match?.[1];
     const orderId = idText ? Number.parseInt(idText, 10) : NaN;
     if (!Number.isInteger(orderId) || orderId <= 0) {
-      await ctx.answerCbQuery('Некорректный идентификатор заказа.');
+      await answerCallbackQuerySafely(ctx, 'Некорректный идентификатор заказа.');
       return;
     }
 
@@ -1575,7 +1576,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
       handleUndoOrderCompletion(ctx, orderId),
     );
     if (guard.status === 'duplicate') {
-      await ctx.answerCbQuery('Запрос уже обработан.');
+      await answerCallbackQuerySafely(ctx, 'Запрос уже обработан.');
     }
   });
 };
