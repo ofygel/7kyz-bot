@@ -14,8 +14,8 @@ import { formatDistance, formatEtaMinutes, formatPriceAmount } from '../../servi
 import type { BotContext } from '../../types';
 import type { OrderStatus, OrderWithExecutor } from '../../../types';
 import { ui } from '../../ui';
-import { sendClientMenu } from '../../../ui/clientMenu';
-import { CLIENT_MENU_ACTION, logClientMenuClick } from './menu';
+import { CLIENT_MENU_ACTION, sendClientMenu } from '../../../ui/clientMenu';
+import { logClientMenuClick } from './menu';
 import {
   CLIENT_CANCEL_ORDER_ACTION_PATTERN,
   CLIENT_CANCEL_ORDER_ACTION_PREFIX,

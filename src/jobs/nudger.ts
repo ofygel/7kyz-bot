@@ -3,7 +3,7 @@ import type { Telegraf } from 'telegraf';
 import type { InlineKeyboardMarkup } from 'telegraf/typings/core/types/typegram';
 
 import type { BotContext } from '../bot/types';
-import { CLIENT_MENU_ACTION } from '../bot/flows/client/menu';
+import { CLIENT_MENU_ACTION } from '../ui/clientMenu';
 import { EXECUTOR_MENU_ACTION } from '../bot/flows/executor/menu';
 import { buildInlineKeyboard } from '../bot/keyboards/common';
 import { wrapCallbackData } from '../bot/services/callbackTokens';
