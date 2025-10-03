@@ -368,6 +368,7 @@ const hasCallbackData = (
 export const bindInlineKeyboardToUser = async (
   ctx: BotContext,
   keyboard: InlineKeyboardMarkup | undefined,
+  wrapFn: typeof wrapCallbackData = wrapCallbackData,
 ): Promise<InlineKeyboardMarkup | undefined> => {
   if (!keyboard || !keyboard.inline_keyboard || keyboard.inline_keyboard.length === 0) {
     return keyboard;
@@ -386,65 +387,88 @@ export const bindInlineKeyboardToUser = async (
   }
 
   let changed = false;
-  const inline_keyboard = await Promise.all(
-    keyboard.inline_keyboard.map((row) =>
-      Promise.all(
-        row.map(async (button) => {
-          if (!hasCallbackData(button) || !button.callback_data) {
-            return button;
-          }
+  let inline_keyboard = keyboard.inline_keyboard;
 
-          if (tryDecodeCallbackData(button.callback_data).ok) {
-            return button;
-          }
+  try {
+    inline_keyboard = await Promise.all(
+      keyboard.inline_keyboard.map(async (row, rowIndex) => {
+        try {
+          return await Promise.all(
+            row.map(async (button, buttonIndex) => {
+              if (!hasCallbackData(button) || !button.callback_data) {
+                return button;
+              }
 
-          let outcome: WrapCallbackOutcome | undefined;
-          let wrapped: string;
-          try {
-            wrapped = await wrapCallbackData(button.callback_data, {
-              secret,
-              userId: user.telegramId,
-              keyboardNonce,
-              bindToUser: true,
-              ttlSeconds: config.bot.callbackTtlSeconds,
-              onResult: (result) => {
-                outcome = result;
-              },
-            });
-          } catch (error) {
-            logger.error(
-              { err: error, action: button.callback_data },
-              'Failed to bind callback data to user',
-            );
-            throw error;
-          }
+              if (tryDecodeCallbackData(button.callback_data).ok) {
+                return button;
+              }
 
-          if (outcome && (outcome.status !== 'wrapped' || !outcome.bound)) {
-            logger.warn(
-              {
-                action: button.callback_data,
-                status: outcome.status,
-                reason: outcome.reason,
-                length: outcome.length,
-                rawLength: outcome.rawLength,
-              },
-              'Failed to bind callback data to user due to length constraints',
-            );
-          }
+              let outcome: WrapCallbackOutcome | undefined;
+              let wrapped: string;
+              try {
+                wrapped = await wrapFn(button.callback_data, {
+                  secret,
+                  userId: user.telegramId,
+                  keyboardNonce,
+                  bindToUser: true,
+                  ttlSeconds: config.bot.callbackTtlSeconds,
+                  onResult: (result) => {
+                    outcome = result;
+                  },
+                });
+              } catch (error) {
+                logger.warn(
+                  {
+                    err: error,
+                    action: button.callback_data,
+                    rowIndex,
+                    buttonIndex,
+                  },
+                  'Failed to bind callback data to user; returning original callback',
+                );
+                return button;
+              }
 
-          if (wrapped === button.callback_data) {
-            return button;
-          }
+              if (outcome && (outcome.status !== 'wrapped' || !outcome.bound)) {
+                logger.warn(
+                  {
+                    action: button.callback_data,
+                    status: outcome.status,
+                    reason: outcome.reason,
+                    length: outcome.length,
+                    rawLength: outcome.rawLength,
+                  },
+                  'Failed to bind callback data to user due to length constraints',
+                );
+              }
 
-          changed = true;
-          return {
-            ...button,
-            callback_data: wrapped,
-          };
-        }),
-      ),
-    ),
-  );
+              if (wrapped === button.callback_data) {
+                return button;
+              }
+
+              changed = true;
+              return {
+                ...button,
+                callback_data: wrapped,
+              };
+            }),
+          );
+        } catch (error) {
+          logger.warn(
+            { err: error, rowIndex },
+            'Failed to bind inline keyboard row to user; returning original row',
+          );
+          return row;
+        }
+      }),
+    );
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      'Failed to bind inline keyboard to user; returning original keyboard',
+    );
+    inline_keyboard = keyboard.inline_keyboard;
+  }
 
   if (!changed) {
     return keyboard;
