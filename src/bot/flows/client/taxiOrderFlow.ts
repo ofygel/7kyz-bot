@@ -32,8 +32,8 @@ import {
 import { buildOrderLocationsKeyboard } from '../../keyboards/orders';
 import type { BotContext, ClientOrderDraftState } from '../../types';
 import { ui } from '../../ui';
-import { CLIENT_MENU, isClientChat, sendClientMenu } from '../../../ui/clientMenu';
-import { CLIENT_MENU_ACTION, logClientMenuClick } from './menu';
+import { CLIENT_MENU_ACTION, sendClientMenu } from '../../../ui/clientMenu';
+import { logClientMenuClick } from './menu';
 import { CLIENT_TAXI_ORDER_AGAIN_ACTION, CLIENT_ORDERS_ACTION } from './orderActions';
 import { ensureCitySelected } from '../common/citySelect';
 import type { AppCity } from '../../../domain/cities';
@@ -865,14 +865,6 @@ export const registerTaxiOrderFlow = (bot: Telegraf<BotContext>): void => {
     }
 
     await handleRecentDropoff(ctx, locationId);
-  });
-
-  bot.hears(CLIENT_MENU.taxi, async (ctx) => {
-    if (!isClientChat(ctx, ctx.auth?.user.role)) {
-      return;
-    }
-
-    await handleStart(ctx);
   });
 
   bot.command('taxi', async (ctx) => {

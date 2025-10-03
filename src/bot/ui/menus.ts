@@ -1,24 +1,18 @@
 import { Markup } from 'telegraf';
 
-import { CLIENT_MENU } from '../../ui/clientMenu';
+import { CLIENT_MENU_TRIGGER } from '../../ui/clientMenu';
 import type { BotContext } from '../types';
 import { EXECUTOR_MENU_TEXT_LABELS } from '../flows/executor/menu';
 import { isSafeModeSession } from '../flows/common/safeMode';
 import { showSafeModeCard } from './safeModeCard';
 
-export const CLIENT_WHITELIST: Set<string> = new Set(Object.values(CLIENT_MENU));
+export const CLIENT_WHITELIST: Set<string> = new Set([CLIENT_MENU_TRIGGER]);
 export const EXECUTOR_WHITELIST: Set<string> = new Set(
   Object.values(EXECUTOR_MENU_TEXT_LABELS),
 );
 
 export const clientKeyboard = () =>
-  Markup.keyboard([
-    [CLIENT_MENU.taxi, CLIENT_MENU.delivery],
-    [CLIENT_MENU.orders],
-    [CLIENT_MENU.support, CLIENT_MENU.city],
-    [CLIENT_MENU.switchRole],
-    [CLIENT_MENU.refresh],
-  ])
+  Markup.keyboard([[CLIENT_MENU_TRIGGER]])
     .resize()
     .persistent();
 

@@ -4,6 +4,14 @@ import { logger } from '../../../config';
 import { ensureClientRole } from '../../../db/users';
 import {
   CLIENT_MENU,
+  CLIENT_MENU_ACTION,
+  CLIENT_MENU_CITY_SELECT_ACTION,
+  CLIENT_MENU_PROFILE_ACTION,
+  CLIENT_MENU_REFRESH_ACTION,
+  CLIENT_MENU_SUPPORT_ACTION,
+  CLIENT_MENU_SWITCH_ROLE_ACTION,
+  CLIENT_MENU_TRIGGER,
+  buildClientMenuKeyboard,
   clientMenuText,
   hideClientMenu,
   isClientChat,
@@ -21,25 +29,13 @@ import { askCity, getCityFromContext, CITY_ACTION_PATTERN } from '../common/city
 import { CLIENT_ORDERS_ACTION } from './orderActions';
 import { START_TAXI_ORDER_ACTION } from './taxiOrderFlow';
 import { START_DELIVERY_ORDER_ACTION } from './deliveryOrderFlow';
-import { buildInlineKeyboard } from '../../keyboards/common';
-import { bindInlineKeyboardToUser } from '../../services/callbackTokens';
 import { copy } from '../../copy';
 import { ROLE_PICK_CLIENT_ACTION } from '../executor/roleSelectionConstants';
 import { clearOnboardingState } from '../../services/onboarding';
-import {
-  PROFILE_BUTTON_LABEL,
-  renderProfileCard,
-  renderProfileCardFromAction,
-} from '../common/profileCard';
+import { renderProfileCard, renderProfileCardFromAction } from '../common/profileCard';
 
 const ROLE_CLIENT_ACTION = 'role:client';
-export const CLIENT_MENU_ACTION = 'client:menu:show';
 const CLIENT_MENU_CITY_ACTION = 'clientMenu' as const;
-const CLIENT_MENU_REFRESH_ACTION = 'client:menu:refresh';
-const CLIENT_MENU_SUPPORT_ACTION = 'client:menu:support';
-const CLIENT_MENU_CITY_SELECT_ACTION = 'client:menu:city';
-const CLIENT_MENU_SWITCH_ROLE_ACTION = 'client:menu:switch-role';
-const CLIENT_MENU_PROFILE_ACTION = 'client:menu:profile';
 
 const buildClientProfileOptions = () => ({
   backAction: CLIENT_MENU_ACTION,
@@ -214,27 +210,10 @@ export const showMenu = async (ctx: BotContext, prompt?: string): Promise<void> 
   const miniStatus = copy.clientMiniStatus(cityLabel);
   const header = miniStatus ? `${miniStatus}\n\n${baseText}` : baseText;
 
+  const keyboard = await buildClientMenuKeyboard(ctx);
+
   if (ctx.callbackQuery) {
     uiState.clientMenuVariant = undefined;
-
-    const rows = [
-      [
-        { label: CLIENT_MENU.taxi, action: START_TAXI_ORDER_ACTION },
-        { label: CLIENT_MENU.delivery, action: START_DELIVERY_ORDER_ACTION },
-      ],
-      [
-        { label: CLIENT_MENU.orders, action: CLIENT_ORDERS_ACTION },
-        { label: PROFILE_BUTTON_LABEL, action: CLIENT_MENU_PROFILE_ACTION },
-      ],
-      [
-        { label: CLIENT_MENU.support, action: CLIENT_MENU_SUPPORT_ACTION },
-        { label: CLIENT_MENU.city, action: CLIENT_MENU_CITY_SELECT_ACTION },
-      ],
-      [{ label: CLIENT_MENU.switchRole, action: CLIENT_MENU_SWITCH_ROLE_ACTION }],
-      [{ label: copy.refresh, action: CLIENT_MENU_REFRESH_ACTION }],
-    ];
-
-    const keyboard = await bindInlineKeyboardToUser(ctx, buildInlineKeyboard(rows));
 
     try {
       await ctx.editMessageText(header, { reply_markup: keyboard });
@@ -244,7 +223,7 @@ export const showMenu = async (ctx: BotContext, prompt?: string): Promise<void> 
     }
   }
 
-  await sendClientMenu(ctx, header);
+  await sendClientMenu(ctx, header, keyboard);
 };
 
 export const registerClientMenu = (bot: Telegraf<BotContext>): void => {
@@ -438,55 +417,11 @@ export const registerClientMenu = (bot: Telegraf<BotContext>): void => {
     await presentRolePick(ctx);
   });
 
-  bot.hears(CLIENT_MENU.refresh, async (ctx) => {
+  bot.hears(CLIENT_MENU_TRIGGER, async (ctx) => {
     if (!isClientChat(ctx, ctx.auth?.user.role)) {
       return;
     }
 
-    await sendClientMenu(ctx, 'Меню обновлено.');
-  });
-
-  bot.hears(CLIENT_MENU.orders, async (ctx) => {
-    if (!isClientChat(ctx, ctx.auth?.user.role)) {
-      return;
-    }
-
-    await logClientMenuClick(ctx, 'client_home_menu:orders');
-
-    const { renderOrdersList } = await import('./orders');
-    await renderOrdersList(ctx);
-  });
-
-  bot.hears(CLIENT_MENU.support, async (ctx) => {
-    if (!isClientChat(ctx, ctx.auth?.user.role)) {
-      return;
-    }
-
-    await promptClientSupport(ctx);
-  });
-
-  bot.hears(CLIENT_MENU.profile, async (ctx) => {
-    if (!isClientChat(ctx, ctx.auth?.user.role)) {
-      return;
-    }
-
-    await renderProfileCard(ctx, buildClientProfileOptions());
-  });
-
-  bot.hears(CLIENT_MENU.city, async (ctx) => {
-    if (!isClientChat(ctx, ctx.auth?.user.role)) {
-      return;
-    }
-
-    await askCity(ctx, 'Выберите город:');
-  });
-
-  bot.hears(CLIENT_MENU.switchRole, async (ctx) => {
-    if (!isClientChat(ctx, ctx.auth?.user.role)) {
-      return;
-    }
-
-    await hideClientMenu(ctx, 'Меняем роль — выберите подходящий вариант ниже.');
-    await presentRolePick(ctx);
+    await showMenu(ctx);
   });
 };
