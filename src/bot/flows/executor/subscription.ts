@@ -9,7 +9,7 @@ import {
   EXECUTOR_SUBSCRIPTION_ACTION,
   ensureExecutorState,
 } from './menu';
-import { ui } from '../../ui';
+import { contactModeratorBtn, ui } from '../../ui';
 import {
   getSubscriptionPeriodOptions,
   formatSubscriptionAmount,
@@ -20,15 +20,33 @@ const SUBSCRIPTION_INFO_STEP_ID = 'executor:subscription:info';
 const SUPPORT_MENTION = config.support.mention;
 const SUPPORT_LINK = config.support.url;
 
+const escapeHtml = (value: string): string =>
+  value.replace(/[&<>'"]/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case "'":
+        return '&#39;';
+      default:
+        return char;
+    }
+  });
+
 const buildPaymentDetails = (): string[] => [
   'Оплатите удобным способом по реквизитам ниже или уточните детали у поддержки:',
-  `Получатель: ${config.subscriptions.payment.kaspi.name}`,
-  `Kaspi Gold: ${config.subscriptions.payment.kaspi.card}`,
-  `Телефон: ${config.subscriptions.payment.kaspi.phone}`,
+  `Получатель: ${escapeHtml(config.subscriptions.payment.kaspi.name)}`,
+  `Kaspi Gold: ${escapeHtml(config.subscriptions.payment.kaspi.card)}`,
+  `Телефон: ${escapeHtml(config.subscriptions.payment.kaspi.phone)}`,
 ];
 
 const buildPlanLine = (label: string, amount: number, currency: string): string =>
-  `• ${label} — ${formatSubscriptionAmount(amount, currency)}`;
+  `• ${escapeHtml(label)} — ${escapeHtml(formatSubscriptionAmount(amount, currency))}`;
 
 const buildSubscriptionInfoText = (ctx: BotContext): string => {
   const state = ensureExecutorState(ctx);
@@ -42,16 +60,19 @@ const buildSubscriptionInfoText = (ctx: BotContext): string => {
     buildPlanLine(option.label, option.amount, option.currency),
   );
 
+  const supportLinkHtml = `<a href="${escapeHtml(SUPPORT_LINK)}">${escapeHtml(SUPPORT_MENTION)}</a>`;
+
   return [
-    `${roleCopy.emoji} Подписка для ${roleCopy.genitive}`,
+    `${escapeHtml(roleCopy.emoji)} Подписка для ${escapeHtml(roleCopy.genitive)}`,
     '',
-    `Доступ к заказам оформляется через поддержку. Выберите подходящий план и напишите ${SUPPORT_MENTION} — команда пришлёт инструкции и проверит оплату.`,
-    '',
+    '1. <b>Выберите тариф</b>',
     ...planLines,
     '',
+    '2. <b>Оплатите выбранный тариф</b>',
     ...buildPaymentDetails(),
     '',
-    'После оплаты отправьте чек напрямую в поддержку, чтобы быстрее получить доступ.',
+    '3. <b>Отправьте чек в поддержку</b>',
+    `Передайте чек ${supportLinkHtml} — команда проверит оплату и откроет доступ к заказам.`,
   ].join('\n');
 };
 
@@ -62,6 +83,7 @@ const buildSubscriptionKeyboard = () => {
 
   return Markup.inlineKeyboard([
     ...planRows,
+    [contactModeratorBtn()],
     [Markup.button.url('Написать в поддержку', SUPPORT_LINK)],
     [Markup.button.callback('⬅️ Назад в меню', EXECUTOR_MENU_ACTION)],
   ]).reply_markup;
@@ -92,6 +114,7 @@ export const startExecutorSubscription = async (
     id: SUBSCRIPTION_INFO_STEP_ID,
     text: buildSubscriptionInfoText(ctx),
     keyboard: buildSubscriptionKeyboard(),
+    parseMode: 'HTML',
     cleanup: true,
     homeAction: EXECUTOR_MENU_ACTION,
   });
