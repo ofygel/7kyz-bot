@@ -68,6 +68,14 @@ const createSubscriptionState = (): ExecutorSubscriptionState => ({
   lastReminderAt: undefined,
 });
 
+const EXECUTOR_SUBSCRIPTION_STATUSES: readonly ExecutorSubscriptionState['status'][] = [
+  'idle',
+  'selectingPeriod',
+  'await_payment_manual',
+  'awaitingReceipt',
+  'pendingModeration',
+];
+
 const EXECUTOR_JOB_STAGES: readonly ExecutorJobsState['stage'][] = [
   'idle',
   'feed',
@@ -77,6 +85,29 @@ const EXECUTOR_JOB_STAGES: readonly ExecutorJobsState['stage'][] = [
 ];
 
 const createJobsState = (): ExecutorJobsState => ({ stage: 'idle' });
+
+const normaliseTimestamp = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isNaN(time) ? undefined : time;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return undefined;
+    }
+
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+
+  return undefined;
+};
 
 const createExecutorState = (): ExecutorFlowState => ({
   role: undefined,
@@ -348,7 +379,77 @@ const rebuildExecutorState = (value: unknown): ExecutorFlowState => {
   }
 
   if (executor.subscription && typeof executor.subscription === 'object') {
-    Object.assign(state.subscription, executor.subscription);
+    const subscription = executor.subscription as Partial<ExecutorSubscriptionState> & {
+      [key: string]: unknown;
+    };
+
+    const statusCandidate = subscription.status;
+    if (
+      typeof statusCandidate === 'string' &&
+      EXECUTOR_SUBSCRIPTION_STATUSES.includes(statusCandidate as ExecutorSubscriptionState['status'])
+    ) {
+      state.subscription.status = statusCandidate as ExecutorSubscriptionState['status'];
+    }
+
+    if ('selectedPeriodId' in subscription) {
+      const selectedPeriod = subscription.selectedPeriodId;
+      if (typeof selectedPeriod === 'string' && selectedPeriod.trim().length > 0) {
+        state.subscription.selectedPeriodId = selectedPeriod;
+      } else {
+        state.subscription.selectedPeriodId = undefined;
+      }
+    }
+
+    if ('pendingPaymentId' in subscription) {
+      const pendingPaymentId = subscription.pendingPaymentId;
+      if (typeof pendingPaymentId === 'string' && pendingPaymentId.trim().length > 0) {
+        state.subscription.pendingPaymentId = pendingPaymentId;
+      } else {
+        state.subscription.pendingPaymentId = undefined;
+      }
+    }
+
+    if ('paymentRequestedAt' in subscription) {
+      const paymentRequestedAt = normaliseTimestamp(subscription.paymentRequestedAt);
+      state.subscription.paymentRequestedAt = paymentRequestedAt;
+    }
+
+    if ('moderationChatId' in subscription) {
+      const moderationChatId = subscription.moderationChatId;
+      if (typeof moderationChatId === 'number' && Number.isFinite(moderationChatId)) {
+        state.subscription.moderationChatId = moderationChatId;
+      } else {
+        state.subscription.moderationChatId = undefined;
+      }
+    }
+
+    if ('moderationMessageId' in subscription) {
+      const moderationMessageId = subscription.moderationMessageId;
+      if (typeof moderationMessageId === 'number' && Number.isFinite(moderationMessageId)) {
+        state.subscription.moderationMessageId = moderationMessageId;
+      } else {
+        state.subscription.moderationMessageId = undefined;
+      }
+    }
+
+    if ('lastInviteLink' in subscription) {
+      const lastInviteLink = subscription.lastInviteLink;
+      if (typeof lastInviteLink === 'string' && lastInviteLink.trim().length > 0) {
+        state.subscription.lastInviteLink = lastInviteLink;
+      } else {
+        state.subscription.lastInviteLink = undefined;
+      }
+    }
+
+    if ('lastIssuedAt' in subscription) {
+      const lastIssuedAt = normaliseTimestamp(subscription.lastIssuedAt);
+      state.subscription.lastIssuedAt = lastIssuedAt;
+    }
+
+    if ('lastReminderAt' in subscription) {
+      const lastReminderAt = normaliseTimestamp(subscription.lastReminderAt);
+      state.subscription.lastReminderAt = lastReminderAt;
+    }
   }
 
   if (executor.jobs && typeof executor.jobs === 'object') {

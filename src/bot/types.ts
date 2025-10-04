@@ -156,7 +156,7 @@ export interface ExecutorSubscriptionState {
   status: ExecutorSubscriptionStatus;
   selectedPeriodId?: string;
   pendingPaymentId?: string;
-  paymentRequestedAt?: number | Date;
+  paymentRequestedAt?: number;
   moderationChatId?: number;
   moderationMessageId?: number;
   lastInviteLink?: string;
