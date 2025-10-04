@@ -456,7 +456,8 @@ export interface AppConfig {
     nudgerInactivitySeconds: number;
     subscription: string;
     metrics: string;
-    paymentReminder: string;
+    paymentFollowUp: string;
+    paymentFollowUpEnabled: boolean;
     phoneSyncIntervalMs: number;
   };
   tariff: TariffRates | null;
@@ -571,7 +572,8 @@ export const loadConfig = (): AppConfig => {
       nudgerInactivitySeconds: parsePositiveInt('JOBS_NUDGER_INACTIVITY_SECONDS', 90),
       subscription: getCronExpression('JOBS_SUBSCRIPTION_CRON', '*/10 * * * *'),
       metrics: getCronExpression('JOBS_METRICS_CRON', '*/60 * * * * *'),
-      paymentReminder: getCronExpression('JOBS_PAYMENT_REMINDER_CRON', '*/10 * * * *'),
+      paymentFollowUp: getCronExpression('JOBS_PAYMENT_FOLLOW_UP_CRON', '*/5 * * * *'),
+      paymentFollowUpEnabled: parseBoolean(process.env.JOBS_PAYMENT_FOLLOW_UP_ENABLED, true),
       phoneSyncIntervalMs: parsePositiveInt('JOBS_PHONE_SYNC_INTERVAL_MS', 5000),
     },
     tariff: parseGeneralTariff(),
