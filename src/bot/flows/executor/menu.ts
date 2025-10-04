@@ -58,6 +58,7 @@ const createSubscriptionState = (): ExecutorFlowState['subscription'] => ({
   status: 'idle',
   selectedPeriodId: undefined,
   pendingPaymentId: undefined,
+  paymentRequestedAt: undefined,
   moderationChatId: undefined,
   moderationMessageId: undefined,
   lastInviteLink: undefined,

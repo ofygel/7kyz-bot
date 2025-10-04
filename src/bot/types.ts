@@ -148,6 +148,7 @@ export interface ExecutorVerificationRoleState {
 export type ExecutorSubscriptionStatus =
   | 'idle'
   | 'selectingPeriod'
+  | 'await_payment_manual'
   | 'awaitingReceipt'
   | 'pendingModeration';
 
@@ -155,6 +156,7 @@ export interface ExecutorSubscriptionState {
   status: ExecutorSubscriptionStatus;
   selectedPeriodId?: string;
   pendingPaymentId?: string;
+  paymentRequestedAt?: number | Date;
   moderationChatId?: number;
   moderationMessageId?: number;
   lastInviteLink?: string;

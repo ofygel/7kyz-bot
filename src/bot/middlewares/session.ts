@@ -58,6 +58,14 @@ const createVerificationState = (): ExecutorVerificationState => {
 
 const createSubscriptionState = (): ExecutorSubscriptionState => ({
   status: 'idle',
+  selectedPeriodId: undefined,
+  pendingPaymentId: undefined,
+  paymentRequestedAt: undefined,
+  moderationChatId: undefined,
+  moderationMessageId: undefined,
+  lastInviteLink: undefined,
+  lastIssuedAt: undefined,
+  lastReminderAt: undefined,
 });
 
 const EXECUTOR_JOB_STAGES: readonly ExecutorJobsState['stage'][] = [

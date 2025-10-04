@@ -85,6 +85,9 @@ export const startExecutorSubscription = async (
     return;
   }
 
+  state.subscription.status = 'await_payment_manual';
+  state.subscription.paymentRequestedAt = Date.now();
+
   await ui.step(ctx, {
     id: SUBSCRIPTION_INFO_STEP_ID,
     text: buildSubscriptionInfoText(ctx),
