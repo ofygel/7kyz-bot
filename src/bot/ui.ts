@@ -1,3 +1,4 @@
+import { Markup } from 'telegraf';
 import type {
   InlineKeyboardMarkup,
   LinkPreviewOptions,
@@ -5,7 +6,7 @@ import type {
   ReplyKeyboardMarkup,
 } from 'telegraf/typings/core/types/typegram';
 
-import { logger } from '../config';
+import { config, logger } from '../config';
 import { pool } from '../db';
 import { updateFlowMeta } from '../db/sessions';
 import { mergeInlineKeyboards, buildInlineKeyboard } from './keyboards/common';
@@ -15,6 +16,9 @@ import { bindInlineKeyboardToUser } from './services/callbackTokens';
 import { copy } from './copy';
 
 const HOME_BUTTON_LABEL = copy.home;
+
+export const contactModeratorBtn = () =>
+  Markup.button.url('📤 Отправить чек', config.support.url);
 
 export interface FlowRecoveryDescriptor {
   type: string;
