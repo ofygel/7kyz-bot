@@ -9,6 +9,7 @@ import {
   stopExecutorPlanReminderService,
 } from './executorPlanReminders';
 import { startUserPhoneSync, stopUserPhoneSync } from './userPhoneSync';
+import { startPaymentFollowUpJob, stopPaymentFollowUpJob } from './paymentFollowUp';
 
 let initialized = false;
 
@@ -22,6 +23,7 @@ export const registerJobs = (bot: Telegraf<BotContext>): void => {
   startMetricsReporter();
   startExecutorPlanReminderService(bot);
   startUserPhoneSync();
+  startPaymentFollowUpJob(bot);
   initialized = true;
 };
 
@@ -35,5 +37,6 @@ export const stopJobs = (): void => {
   stopMetricsReporter();
   void stopExecutorPlanReminderService();
   stopUserPhoneSync();
+  stopPaymentFollowUpJob();
   initialized = false;
 };

@@ -100,6 +100,14 @@ are missing or blank.
   unfinished flows. Disabled by default.
 - `JOBS_NUDGER_INACTIVITY_SECONDS` – Amount of idle time (in seconds) after which
   the nudger sends a reminder message. Defaults to 90 seconds.
+- `JOBS_PAYMENT_FOLLOW_UP_ENABLED` – Turns on the manual payment follow-up job that
+  sends a one-time reminder if payment confirmation is missing. Enabled by default.
+- `JOBS_PAYMENT_FOLLOW_UP_CRON` – Cron expression controlling how often the payment
+  follow-up job scans sessions. Defaults to `*/5 * * * *` (every five minutes).
+
+When enabled, the payment follow-up job looks for executor sessions stuck in the
+`await_payment_manual` state for more than 15 minutes and prompts them to send a
+receipt or contact support. The reminder is sent only once per payment request.
 
 ## Location and geocoding
 
