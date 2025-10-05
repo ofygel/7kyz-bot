@@ -3,6 +3,7 @@ import type { Telegraf } from 'telegraf';
 
 import { isClientChat, sendClientMenu } from '../../../ui/clientMenu';
 import type { BotContext } from '../../types';
+import { isClientGlobalMenuIntent } from './globalIntents';
 
 const isBotCommandMessage = (message: Message): boolean => {
   const textEntitySource = message as Partial<Message.TextMessage>;
@@ -30,10 +31,13 @@ const shouldHandleFallback = (ctx: BotContext): boolean => {
     return false;
   }
 
-  const taxiStage = ctx.session.client.taxi?.stage ?? 'idle';
-  const deliveryStage = ctx.session.client.delivery?.stage ?? 'idle';
+  const message = ctx.message as Message | undefined;
+  if (!message) {
+    return false;
+  }
 
-  if (taxiStage !== 'idle' || deliveryStage !== 'idle') {
+  const text = 'text' in message && typeof message.text === 'string' ? message.text.trim() : '';
+  if (!text) {
     return false;
   }
 
@@ -41,16 +45,18 @@ const shouldHandleFallback = (ctx: BotContext): boolean => {
     return false;
   }
 
-  const message = ctx.message as Message | undefined;
-  if (!message) {
-    return false;
+  const isGlobalIntent = isClientGlobalMenuIntent(text);
+
+  if (!isGlobalIntent) {
+    const taxiStage = ctx.session.client.taxi?.stage ?? 'idle';
+    const deliveryStage = ctx.session.client.delivery?.stage ?? 'idle';
+
+    if (taxiStage !== 'idle' || deliveryStage !== 'idle') {
+      return false;
+    }
   }
 
-  if (!('text' in message) || typeof message.text !== 'string' || message.text.trim().length === 0) {
-    return false;
-  }
-
-  if (isBotCommandMessage(message)) {
+  if (!isGlobalIntent && isBotCommandMessage(message)) {
     return false;
   }
 
