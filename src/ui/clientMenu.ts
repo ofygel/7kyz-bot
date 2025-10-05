@@ -60,37 +60,37 @@ export const buildClientMenuKeyboard = async (
   ctx: BotContext,
 ): Promise<InlineKeyboardMarkup | undefined> => bindInlineKeyboardToUser(ctx, buildInlineMenuKeyboard());
 
-const buildCombinedMenuMarkup = (
-  replyMarkup: ReturnType<typeof buildKeyboard>,
-  inlineKeyboard: InlineKeyboardMarkup | undefined,
-) => {
-  if (!inlineKeyboard) {
-    return replyMarkup;
-  }
-
-  const replyKeyboard = replyMarkup.reply_markup ?? {};
-  return {
-    reply_markup: {
-      ...replyKeyboard,
-      inline_keyboard: inlineKeyboard.inline_keyboard,
-    },
-  };
-};
-
 const DEFAULT_MENU_PROMPT = 'Что дальше? Выберите действие:';
 
-export const sendClientMenu = async (
+const sendReplyKeyboard = async (
   ctx: BotContext,
-  text: string = DEFAULT_MENU_PROMPT,
-  inlineKeyboard?: InlineKeyboardMarkup,
-): Promise<Message.TextMessage | undefined> => {
-  if (!ctx.chat) {
-    return undefined;
-  }
+  replyKeyboard: ReturnType<typeof buildKeyboard>,
+): Promise<void> => {
+  try {
+    await ctx.reply(CLIENT_MENU_TRIGGER, replyKeyboard);
+    return;
+  } catch (error) {
+    if (!ctx.chat?.id) {
+      throw error;
+    }
 
-  const replyKeyboard = buildKeyboard();
-  const resolvedInlineKeyboard = inlineKeyboard ?? (await buildClientMenuKeyboard(ctx));
-  const extra = buildCombinedMenuMarkup(replyKeyboard, resolvedInlineKeyboard);
+    const replyMarkup = replyKeyboard.reply_markup;
+    const extra = replyMarkup ? { reply_markup: replyMarkup } : undefined;
+
+    try {
+      await ctx.telegram.sendMessage(ctx.chat.id, CLIENT_MENU_TRIGGER, extra);
+    } catch {
+      throw error;
+    }
+  }
+};
+
+const sendInlineMenuMessage = async (
+  ctx: BotContext,
+  text: string,
+  inlineKeyboard?: InlineKeyboardMarkup,
+): Promise<Message.TextMessage> => {
+  const extra = inlineKeyboard ? { reply_markup: inlineKeyboard } : undefined;
 
   try {
     return await ctx.reply(text, extra);
@@ -107,6 +107,27 @@ export const sendClientMenu = async (
   }
 };
 
+export const sendClientMenu = async (
+  ctx: BotContext,
+  text: string = DEFAULT_MENU_PROMPT,
+  inlineKeyboard?: InlineKeyboardMarkup,
+): Promise<Message.TextMessage | undefined> => {
+  if (!ctx.chat) {
+    return undefined;
+  }
+
+  const replyKeyboard = buildKeyboard();
+  const resolvedInlineKeyboard = inlineKeyboard ?? (await buildClientMenuKeyboard(ctx));
+
+  await sendReplyKeyboard(ctx, replyKeyboard);
+
+  if (!resolvedInlineKeyboard) {
+    return sendInlineMenuMessage(ctx, text);
+  }
+
+  return sendInlineMenuMessage(ctx, text, resolvedInlineKeyboard);
+};
+
 export const sendClientMenuToChat = async (
   telegram: Telegram,
   chatId: number,
@@ -114,10 +135,19 @@ export const sendClientMenuToChat = async (
 ): Promise<Message.TextMessage | undefined> => {
   const replyKeyboard = buildKeyboard();
   const inlineKeyboard = buildInlineMenuKeyboard();
-  const extra = buildCombinedMenuMarkup(replyKeyboard, inlineKeyboard);
+  const replyMarkup = replyKeyboard.reply_markup;
+  const replyExtra = replyMarkup ? { reply_markup: replyMarkup } : undefined;
 
   try {
-    return await telegram.sendMessage(chatId, text, extra);
+    await telegram.sendMessage(chatId, CLIENT_MENU_TRIGGER, replyExtra);
+  } catch {
+    return undefined;
+  }
+
+  const inlineExtra = inlineKeyboard ? { reply_markup: inlineKeyboard } : undefined;
+
+  try {
+    return await telegram.sendMessage(chatId, text, inlineExtra);
   } catch {
     return undefined;
   }
