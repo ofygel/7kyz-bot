@@ -30,7 +30,7 @@ import { buildOrderLocationsKeyboard } from '../../keyboards/orders';
 import type { BotContext, ClientOrderDraftState } from '../../types';
 import { ui } from '../../ui';
 import { CLIENT_MENU_ACTION, sendClientMenu } from '../../../ui/clientMenu';
-import { logClientMenuClick } from './menu';
+import { logClientMenuClick, showMenu } from './menu';
 import { CLIENT_DELIVERY_ORDER_AGAIN_ACTION, CLIENT_ORDERS_ACTION } from './orderActions';
 import { ensureCitySelected } from '../common/citySelect';
 import type { AppCity } from '../../../domain/cities';
@@ -48,6 +48,7 @@ import { copy } from '../../copy';
 import { normalizeE164 } from '../../../utils/phone';
 import { buildStatusMessage } from '../../ui/status';
 import { flowStart, flowComplete } from '../../../metrics/agg';
+import { isClientGlobalMenuIntent } from './globalIntents';
 import { registerFlowRecovery } from '../recovery';
 
 export const START_DELIVERY_ORDER_ACTION = 'client:order:delivery:start';
@@ -868,14 +869,38 @@ const confirmOrder = async (ctx: BotContext, draft: ClientOrderDraftState): Prom
   }
 };
 
-const processCancellationText = async (
+const isCancellationIntent = (text: string): boolean => {
+  const lower = text.toLowerCase();
+  if (lower === 'отмена' || lower === 'cancel') {
+    return true;
+  }
+
+  if (!lower.startsWith('/cancel')) {
+    return false;
+  }
+
+  const [command] = lower.split(/\s+/);
+  return command === '/cancel' || command.startsWith('/cancel@');
+};
+
+const exitDeliveryFlowToMenu = async (
+  ctx: BotContext,
+  draft: ClientOrderDraftState,
+): Promise<void> => {
+  await clearInlineKeyboard(ctx, draft.confirmationMessageId);
+  await ui.clear(ctx);
+  resetClientOrderDraft(draft);
+  flowComplete('delivery_order', false);
+  await showMenu(ctx);
+};
+
+const processEscapeText = async (
   ctx: BotContext,
   draft: ClientOrderDraftState,
   text: string,
 ): Promise<boolean> => {
-  const normalized = text.trim().toLowerCase();
-  if (normalized === '/cancel' || normalized === 'отмена' || normalized === 'cancel') {
-    await cancelOrderDraft(ctx, draft);
+  if (isClientGlobalMenuIntent(text) || isCancellationIntent(text)) {
+    await exitDeliveryFlowToMenu(ctx, draft);
     return true;
   }
 
@@ -889,78 +914,58 @@ const handleIncomingText = async (ctx: BotContext, next: () => Promise<void>): P
   }
 
   const message = ctx.message;
-  if (!message || !('text' in message)) {
+  if (!message || !('text' in message) || typeof message.text !== 'string') {
     await next();
     return;
   }
 
   const text = message.text.trim();
-  if (text.startsWith('/')) {
-    const draft = getDraft(ctx);
-    const cancelled = await processCancellationText(ctx, draft, text);
-    if (!cancelled) {
-      await next();
-    }
+  if (!text) {
+    await next();
     return;
   }
 
   const draft = getDraft(ctx);
+  if (await processEscapeText(ctx, draft, text)) {
+    return;
+  }
+
+  if (text.startsWith('/')) {
+    await next();
+    return;
+  }
+
   switch (draft.stage) {
     case 'collectingPickup':
-      if (await processCancellationText(ctx, draft, text)) {
-        return;
-      }
       await applyPickupAddress(ctx, draft, text);
       break;
     case 'collectingDropoff':
-      if (await processCancellationText(ctx, draft, text)) {
-        return;
-      }
       await applyDropoffAddress(ctx, draft, text);
       break;
     case 'selectingAddressType':
-      if (await processCancellationText(ctx, draft, text)) {
-        return;
-      }
       await remindAddressTypeSelection(ctx);
       break;
     case 'collectingApartment':
-      if (await processCancellationText(ctx, draft, text)) {
-        return;
-      }
       await applyApartmentDetails(ctx, draft, text);
       break;
     case 'collectingEntrance':
-      if (await processCancellationText(ctx, draft, text)) {
-        return;
-      }
       await applyEntranceDetails(ctx, draft, text);
       break;
     case 'collectingFloor':
-      if (await processCancellationText(ctx, draft, text)) {
-        return;
-      }
       await applyFloorDetails(ctx, draft, text);
       break;
     case 'collectingRecipientPhone':
-      if (await processCancellationText(ctx, draft, text)) {
-        return;
-      }
       await applyRecipientPhone(ctx, draft, text);
       break;
     case 'collectingComment':
-      if (await processCancellationText(ctx, draft, text)) {
-        return;
-      }
       await applyDeliveryComment(ctx, draft, text);
       break;
-    case 'awaitingConfirmation': {
-      if (await processCancellationText(ctx, draft, text)) {
-        return;
-      }
+    case 'awaitingConfirmation':
       await remindConfirmationActions(ctx);
       break;
-    }
+    case 'creatingOrder':
+      await remindConfirmationActions(ctx);
+      break;
     default:
       await next();
   }
@@ -1024,6 +1029,7 @@ export const deliveryOrderTestables = {
   applyDropoffAddress,
   handleIncomingLocation,
   remindTwoGisRequirement,
+  handleIncomingText,
 };
 
 const resumeDeliveryFlowStep = async (ctx: BotContext): Promise<boolean> => {
