@@ -33,9 +33,11 @@ import { copy } from '../../copy';
 import { ROLE_PICK_CLIENT_ACTION } from '../executor/roleSelectionConstants';
 import { clearOnboardingState } from '../../services/onboarding';
 import { renderProfileCard, renderProfileCardFromAction } from '../common/profileCard';
+import { ui } from '../../ui';
 
 const ROLE_CLIENT_ACTION = 'role:client';
 const CLIENT_MENU_CITY_ACTION = 'clientMenu' as const;
+const ROLE_PICK_STEP_ID = 'start:role:pick';
 
 const buildClientProfileOptions = () => ({
   backAction: CLIENT_MENU_ACTION,
@@ -76,11 +78,32 @@ const removeRoleSelectionMessage = async (ctx: BotContext): Promise<void> => {
     return;
   }
 
+  let messageRemoved = false;
+
   try {
     await ctx.deleteMessage();
-    return;
+    messageRemoved = true;
   } catch (error) {
     logger.debug({ err: error, chatId: ctx.chat.id }, 'Failed to delete client role message');
+  }
+
+  if (!messageRemoved) {
+    const step = ctx.session.ui?.steps?.[ROLE_PICK_STEP_ID];
+    if (step) {
+      try {
+        await ctx.telegram.deleteMessage(step.chatId, step.messageId);
+        messageRemoved = true;
+      } catch (error) {
+        logger.debug(
+          { err: error, chatId: step.chatId, messageId: step.messageId },
+          'Failed to delete stored client role message',
+        );
+      }
+    }
+  }
+
+  if (messageRemoved) {
+    return;
   }
 
   try {
@@ -239,6 +262,7 @@ export const registerClientMenu = (bot: Telegraf<BotContext>): void => {
       }
 
       await removeRoleSelectionMessage(ctx);
+      await ui.clear(ctx, { ids: ROLE_PICK_STEP_ID, cleanupOnly: false });
 
       await applyClientCommands(ctx);
 
