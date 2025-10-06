@@ -12,10 +12,14 @@ export const copy = {
   orderUndoReleaseFailed: 'Не удалось вернуть заказ: его уже забрали.',
   orderUndoCompleteRestored: 'Вернул заказ в работу.',
   orderUndoCompleteFailed: 'Не удалось вернуть заказ в работу.',
+  orderClaimedClientNotice: (shortId: string | number) =>
+    `ℹ️ Исполнитель принял заказ №${shortId}.`,
   orderUndoReleaseClientNotice: (shortId: string | number) =>
     `ℹ️ Исполнитель снова взял заказ №${shortId}.`,
   orderUndoCompletionClientNotice: (shortId: string | number) =>
     `ℹ️ Исполнитель возобновил работу над заказом №${shortId}.`,
+  orderClaimedClientMenuPrompt: 'Хотите связаться с исполнителем или изменить заказ?',
+  orderUndoReleaseClientMenuPrompt: 'Исполнитель снова работает над заказом. Что дальше?',
   back: '⬅ Назад',
   refresh: '🔄 Обновить',
   resume: '🔄 Продолжить',
