@@ -1,4 +1,5 @@
-const URL_PATTERN = /https?:\/\/[^\s]+/giu;
+const URL_PATTERN =
+  /(?:https?:\/\/[^\s]+|(?:https?:\/\/)?(?:[\w.-]+\.)?2gis\.[^\/\s]+\/\S+)/giu;
 const TRAILING_PUNCTUATION_RE = /[)\]\}>,.!?:;'"«»„“”›‹…]+$/u;
 
 const stripTrailingPunctuation = (value: string): string => {
@@ -36,9 +37,13 @@ export const extractPreferredUrl = (value: string): string | null => {
 
   const matches: string[] = [];
   for (const match of value.matchAll(URL_PATTERN)) {
-    const cleaned = stripTrailingPunctuation(match[0]);
+    let cleaned = stripTrailingPunctuation(match[0]);
     if (!isMeaningfulUrl(cleaned)) {
       continue;
+    }
+
+    if (!/^\w[\w+.-]*:\/\//u.test(cleaned)) {
+      cleaned = `https://${cleaned}`;
     }
 
     matches.push(cleaned);

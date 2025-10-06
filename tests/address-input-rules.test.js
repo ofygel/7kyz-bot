@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 
 require('ts-node/register/transpile-only');
 
+const { extractPreferredUrl } = require('../src/lib/extractPreferredUrl');
+
 const ensureEnv = (key, value) => {
   if (!process.env[key]) {
     process.env[key] = value;
@@ -296,4 +298,20 @@ test('delivery flow accepts 2GIS links', { concurrency: false }, async (t) => {
     uiCalls.some((call) => call.id === 'client:delivery:step' && /Адрес доставки/iu.test(call.text)),
     'successful pickup should request dropoff address details',
   );
+});
+
+test('extractPreferredUrl adds protocol to bare 2GIS link in text', () => {
+  const text = 'Название 2gis.kz/almaty/geo/70000001000000000';
+
+  const result = extractPreferredUrl(text);
+
+  assert.equal(result, 'https://2gis.kz/almaty/geo/70000001000000000');
+});
+
+test('extractPreferredUrl handles go.2gis short link without protocol', () => {
+  const text = 'Ссылка go.2gis.com/redirect?some=value&utm=1';
+
+  const result = extractPreferredUrl(text);
+
+  assert.equal(result, 'https://go.2gis.com/redirect?some=value&utm=1');
 });
