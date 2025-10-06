@@ -416,6 +416,7 @@ export const registerClientOrdersFlow = (bot: Telegraf<BotContext>): void => {
       return;
     }
 
+    await sendProcessingFeedback(ctx);
     await logClientMenuClick(ctx, 'client_home_menu:orders');
 
     await renderOrdersList(ctx);
