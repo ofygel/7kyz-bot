@@ -40,7 +40,7 @@ import {
   ORDER_KIND_LABELS,
 } from '../../orders/formatting';
 
-type ClientOrdersFailureScope = 'list' | 'detail' | 'status' | 'cancel';
+type ClientOrdersFailureScope = 'list' | 'detail' | 'status' | 'cancel' | 'render';
 
 const handleClientOrdersFailure = async (
   ctx: BotContext,
@@ -283,13 +283,18 @@ export const renderOrdersList = async (
   const text = buildOrdersListText(items);
   const keyboard = buildOrdersListKeyboard(items);
 
-  await ui.step(ctx, {
-    id: CLIENT_ORDERS_LIST_STEP_ID,
-    text,
-    keyboard,
-    homeAction: CLIENT_MENU_ACTION,
-    recovery: { type: 'client:orders:list' },
-  });
+  try {
+    await ui.step(ctx, {
+      id: CLIENT_ORDERS_LIST_STEP_ID,
+      text,
+      keyboard,
+      homeAction: CLIENT_MENU_ACTION,
+      recovery: { type: 'client:orders:list' },
+    });
+  } catch (error) {
+    await handleClientOrdersFailure(ctx, 'render', error);
+    return null;
+  }
 
   return items;
 };
