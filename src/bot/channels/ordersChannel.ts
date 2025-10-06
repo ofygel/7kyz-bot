@@ -9,6 +9,7 @@ import { CITY_LABEL } from '../../domain/cities';
 import {
   lockOrderById,
   setOrderChannelMessageId,
+  getOrderWithExecutorById,
   tryClaimOrder,
   tryCompleteOrder,
   tryReclaimOrder,
@@ -23,6 +24,7 @@ import { buildInlineKeyboard, mergeInlineKeyboards } from '../keyboards/common';
 import { wrapCallbackData } from '../services/callbackTokens';
 import { copy } from '../copy';
 import { sendClientMenuToChat } from '../../ui/clientMenu';
+import { buildOrderContactKeyboard, buildOrderDetailText } from '../orders/formatting';
 import {
   reportOrderClaimed,
   reportOrderCompleted,
@@ -158,6 +160,70 @@ const buildOrderDirectMessage = (order: OrderRecord): OrderDirectMessage => {
   const keyboard = mergeInlineKeyboards(locationsKeyboard, actionsKeyboard) ?? actionsKeyboard;
 
   return { text: baseMessage, keyboard } satisfies OrderDirectMessage;
+};
+
+const CONTROL_REMINDER_LINE = 'Используйте кнопки ниже, чтобы управлять заказом.';
+const CLIENT_ORDER_UPDATE_FALLBACK_TEXT = 'ℹ️ Статус заказа обновлён.';
+
+const stripControlReminder = (text: string): string => {
+  const lines = text.split('\n');
+
+  while (lines.length > 0 && lines[lines.length - 1].trim().length === 0) {
+    lines.pop();
+  }
+
+  if (lines.length > 0 && lines[lines.length - 1] === CONTROL_REMINDER_LINE) {
+    lines.pop();
+    while (lines.length > 0 && lines[lines.length - 1].trim().length === 0) {
+      lines.pop();
+    }
+  }
+
+  return lines.join('\n');
+};
+
+interface ClientOrderNotificationOptions {
+  orderId: number;
+  clientId: number;
+  introText: string;
+  menuPrompt: string;
+}
+
+const notifyClientAboutOrderUpdate = async (
+  telegram: Telegram,
+  { orderId, clientId, introText, menuPrompt }: ClientOrderNotificationOptions,
+): Promise<void> => {
+  const intro = introText.trim();
+  const fallbackText = intro || CLIENT_ORDER_UPDATE_FALLBACK_TEXT;
+  let messageText = fallbackText;
+  const messageOptions: { reply_markup?: InlineKeyboardMarkup } = {};
+
+  try {
+    const detailedOrder = await getOrderWithExecutorById(orderId);
+    if (detailedOrder) {
+      const detailText = stripControlReminder(buildOrderDetailText(detailedOrder, {}));
+      messageText = intro ? `${intro}\n\n${detailText}` : detailText;
+
+      const contactKeyboard = buildOrderContactKeyboard(detailedOrder);
+      if (contactKeyboard) {
+        messageOptions.reply_markup = contactKeyboard;
+      }
+    }
+  } catch (error) {
+    logger.warn({ err: error, orderId, clientId }, 'Failed to prepare client order update');
+  }
+
+  try {
+    await telegram.sendMessage(clientId, messageText, messageOptions);
+  } catch (error) {
+    logger.debug({ err: error, orderId, clientId }, 'Failed to notify client about order update');
+  }
+
+  try {
+    await sendClientMenuToChat(telegram, clientId, menuPrompt);
+  } catch (error) {
+    logger.debug({ err: error, orderId, clientId }, 'Failed to send client menu after order update');
+  }
 };
 
 type OrderChannelStatus = 'pending' | 'claimed' | 'declined';
@@ -983,6 +1049,17 @@ const handleOrderDecision = async (
 
       await answerCallbackQuerySafely(ctx, answerMessage);
 
+      const clientId = result.order.clientId;
+      if (typeof clientId === 'number') {
+        const shortId = result.order.shortId ?? result.order.id.toString();
+        await notifyClientAboutOrderUpdate(ctx.telegram, {
+          orderId: result.order.id,
+          clientId,
+          introText: copy.orderClaimedClientNotice(shortId),
+          menuPrompt: copy.orderClaimedClientMenuPrompt,
+        });
+      }
+
       await reportOrderClaimed(ctx.telegram, result.order, toUserIdentity(ctx.from));
       return;
     }
@@ -1241,14 +1318,12 @@ const handleUndoOrderRelease = async (ctx: BotContext, orderId: number): Promise
       const clientId = result.order.clientId;
       if (typeof clientId === 'number') {
         const shortId = result.order.shortId ?? result.order.id.toString();
-        try {
-          await ctx.telegram.sendMessage(clientId, copy.orderUndoReleaseClientNotice(shortId));
-        } catch (error) {
-          logger.debug(
-            { err: error, orderId, clientId },
-            'Failed to notify client about release undo',
-          );
-        }
+        await notifyClientAboutOrderUpdate(ctx.telegram, {
+          orderId: result.order.id,
+          clientId,
+          introText: copy.orderUndoReleaseClientNotice(shortId),
+          menuPrompt: copy.orderUndoReleaseClientMenuPrompt,
+        });
       }
 
       await reportOrderClaimed(ctx.telegram, result.order, toUserIdentity(ctx.from));
@@ -1583,6 +1658,7 @@ export const registerOrdersChannel = (bot: Telegraf<BotContext>): void => {
 
 export const __testing = {
   orderStates,
+  releaseUndoStates,
   resolveAuthorizedChatId,
   processOrderAction,
   handleOrderDecision,
