@@ -15,6 +15,8 @@ import {
 import * as geocode from '../../services/geocode';
 import {
   estimateDeliveryPrice,
+  formatDistance,
+  formatEtaMinutes,
   formatPriceAmount,
 } from '../../services/pricing';
 import { clearInlineKeyboard } from '../../services/cleanup';
@@ -33,8 +35,8 @@ import { CLIENT_MENU_ACTION, sendClientMenu } from '../../../ui/clientMenu';
 import { logClientMenuClick, showMenu } from './menu';
 import { CLIENT_DELIVERY_ORDER_AGAIN_ACTION, CLIENT_ORDERS_ACTION } from './orderActions';
 import { ensureCitySelected } from '../common/citySelect';
-import type { AppCity } from '../../../domain/cities';
-import { dgBase } from '../../../utils/2gis';
+import { CITY_2GIS_SLUG, CITY_LABEL, type AppCity } from '../../../domain/cities';
+import { dgBase, extractTwoGisCitySlug } from '../../../utils/2gis';
 import { reportOrderCreated, type UserIdentity } from '../../services/reports';
 import {
   decodeRecentLocationId,
@@ -82,6 +84,7 @@ const DELIVERY_CREATE_ERROR_STEP_ID = 'client:delivery:error:create';
 const DELIVERY_ADDRESS_TYPE_HINT_STEP_ID = 'client:delivery:hint:address-type';
 const DELIVERY_ADDRESS_DETAILS_ERROR_STEP_ID = 'client:delivery:error:address-details';
 const DELIVERY_RECIPIENT_PHONE_ERROR_STEP_ID = 'client:delivery:error:recipient-phone';
+const DELIVERY_CITY_MISMATCH_STEP_ID = 'client:delivery:error:city-mismatch';
 
 type ClientPublishStatus = PublishOrderStatus | 'publish_failed';
 
@@ -123,6 +126,43 @@ const remindTwoGisRequirement = async (ctx: BotContext): Promise<void> => {
     text: '⚠️ Принимаем только ссылки 2ГИС. Нажмите «Открыть 2ГИС», выберите точку и отправьте ссылку на неё.',
     cleanup: true,
   });
+};
+
+const doesLocationMatchCity = (location: OrderLocation, city: AppCity): boolean => {
+  const slug = extractTwoGisCitySlug(location.twoGisUrl);
+  if (!slug) {
+    return true;
+  }
+
+  return slug === CITY_2GIS_SLUG[city];
+};
+
+const remindCityMismatch = async (
+  ctx: BotContext,
+  city: AppCity,
+  role: 'pickup' | 'dropoff',
+): Promise<void> => {
+  const cityLabel = CITY_LABEL[city];
+  const roleLabel = role === 'pickup' ? 'забора' : 'доставки';
+  await ui.step(ctx, {
+    id: DELIVERY_CITY_MISMATCH_STEP_ID,
+    text: `⚠️ Адрес ${roleLabel} не относится к выбранному городу ${cityLabel}. Отправьте ссылку из 2ГИС для этого города.`,
+    cleanup: true,
+  });
+};
+
+const ensureLocationMatchesSelectedCity = async (
+  ctx: BotContext,
+  location: OrderLocation,
+  city: AppCity,
+  role: 'pickup' | 'dropoff',
+): Promise<boolean> => {
+  if (doesLocationMatchCity(location, city)) {
+    return true;
+  }
+
+  await remindCityMismatch(ctx, city, role);
+  return false;
 };
 
 const buildAddressTypeKeyboard = () =>
@@ -492,6 +532,10 @@ const applyPickupAddress = async (ctx: BotContext, draft: ClientOrderDraftState,
     await handleGeocodingFailure(ctx);
     return;
   }
+  const city = ctx.session.city;
+  if (city && !(await ensureLocationMatchesSelectedCity(ctx, pickup, city, 'pickup'))) {
+    return;
+  }
   await applyPickupDetails(ctx, draft, pickup);
 };
 
@@ -500,6 +544,50 @@ const buildConfirmationKeyboard = () =>
 
 const buildOrderAgainKeyboard = () =>
   buildInlineKeyboard([[{ label: 'Заказать ещё', action: CLIENT_DELIVERY_ORDER_AGAIN_ACTION }]]);
+
+const buildDeliveryOrderCardKeyboard = (order: OrderRecord): InlineKeyboardMarkup | undefined => {
+  const locationsKeyboard = buildOrderLocationsKeyboard(order.city, order.pickup, order.dropoff);
+  const actionsKeyboard = buildInlineKeyboard([
+    [{ label: '📋 Мои заказы', action: CLIENT_ORDERS_ACTION }],
+    [{ label: 'Заказать ещё', action: CLIENT_DELIVERY_ORDER_AGAIN_ACTION }],
+  ]);
+
+  return mergeInlineKeyboards(locationsKeyboard, actionsKeyboard) ?? actionsKeyboard;
+};
+
+const buildDeliveryOrderCardText = (
+  order: OrderRecord,
+  statusLabel: string,
+  publishStatus: ClientPublishStatus,
+): string => {
+  const lines = [
+    `🚚 Доставка №${order.shortId}`,
+    `Статус: ${statusLabel}`,
+    '',
+    `📦 Забор: ${order.pickup.address}`,
+    `📮 Доставка: ${order.dropoff.address}`,
+    `📏 Расстояние: ${formatDistance(order.price.distanceKm)} км`,
+    `⏱️ В пути: ≈${formatEtaMinutes(order.price.etaMinutes)} мин`,
+    `💰 Стоимость: ${formatPriceAmount(order.price.amount, order.price.currency)}`,
+    '',
+  ];
+
+  if (publishStatus === 'missing_channel') {
+    lines.push('⚠️ Канал исполнителей не настроен. Мы свяжемся с вами вручную.');
+  } else if (publishStatus === 'publish_failed') {
+    lines.push('⚠️ Не удалось отправить заказ исполнителям. Мы свяжемся с вами вручную.');
+  } else {
+    lines.push('⏳ Отправили заказ курьерам и ждём отклика.');
+  }
+
+  if (order.recipientPhone) {
+    lines.push(`📞 Телефон получателя: ${order.recipientPhone}.`);
+  }
+
+  lines.push('Я сообщу, как только исполнитель возьмёт заказ.');
+
+  return lines.join('\n');
+};
 
 const buildDeliveryInstructions = (
   draft: CompletedOrderDraft,
@@ -562,6 +650,10 @@ const applyDropoffAddress = async (
   const dropoff = await geocode.geocodeOrderLocation(text, { city: ctx.session.city });
   if (!dropoff) {
     await handleGeocodingFailure(ctx);
+    return;
+  }
+  const city = ctx.session.city;
+  if (city && !(await ensureLocationMatchesSelectedCity(ctx, dropoff, city, 'dropoff'))) {
     return;
   }
   await applyDropoffDetails(ctx, draft, dropoff);
@@ -727,19 +819,8 @@ const notifyOrderCreated = async (
     recovery: { type: 'client:delivery:status', payload: statusPayload },
   });
 
-  const lines = [
-    publishStatus === 'publish_failed'
-      ? `Заказ на доставку №${order.id} записан, но не был отправлен исполнителям.`
-      : `Заказ на доставку №${order.id} создан.`,
-    `Стоимость по расчёту: ${formatPriceAmount(order.price.amount, order.price.currency)}.`,
-  ];
-
-  if (publishStatus === 'missing_channel') {
-    lines.push('⚠️ Канал исполнителей не настроен. Мы свяжемся с вами вручную.');
-  }
-  if (publishStatus === 'publish_failed') {
-    lines.push('⚠️ Не удалось отправить заказ исполнителям. Мы свяжемся с вами вручную.');
-  }
+  const cardText = buildDeliveryOrderCardText(order, statusLabel, publishStatus);
+  const cardKeyboard = buildDeliveryOrderCardKeyboard(order);
 
   const customer: UserIdentity = {
     telegramId: ctx.auth.user.telegramId,
@@ -753,10 +834,10 @@ const notifyOrderCreated = async (
 
   await ui.step(ctx, {
     id: DELIVERY_CREATED_STEP_ID,
-    text: lines.join('\n'),
+    text: cardText,
     cleanup: true,
     homeAction: CLIENT_MENU_ACTION,
-    keyboard: buildOrderAgainKeyboard(),
+    keyboard: cardKeyboard,
   });
   await sendClientMenu(ctx, 'Готово. Хотите оформить новый заказ?');
 };

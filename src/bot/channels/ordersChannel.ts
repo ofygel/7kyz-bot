@@ -24,7 +24,11 @@ import { buildInlineKeyboard, mergeInlineKeyboards } from '../keyboards/common';
 import { wrapCallbackData } from '../services/callbackTokens';
 import { copy } from '../copy';
 import { sendClientMenuToChat } from '../../ui/clientMenu';
-import { buildOrderContactKeyboard, buildOrderDetailText } from '../orders/formatting';
+import {
+  buildOrderContactKeyboard,
+  buildOrderDetailText,
+  formatExecutorLabel,
+} from '../orders/formatting';
 import {
   reportOrderClaimed,
   reportOrderCompleted,
@@ -195,14 +199,19 @@ const notifyClientAboutOrderUpdate = async (
 ): Promise<void> => {
   const intro = introText.trim();
   const fallbackText = intro || CLIENT_ORDER_UPDATE_FALLBACK_TEXT;
+  let introLine = intro;
   let messageText = fallbackText;
   const messageOptions: { reply_markup?: InlineKeyboardMarkup } = {};
 
   try {
     const detailedOrder = await getOrderWithExecutorById(orderId);
     if (detailedOrder) {
+      if (detailedOrder.status === 'claimed') {
+        const executorLine = `👤 Исполнитель: ${formatExecutorLabel(detailedOrder)}.`;
+        introLine = introLine ? `${introLine}\n${executorLine}` : executorLine;
+      }
       const detailText = stripControlReminder(buildOrderDetailText(detailedOrder, {}));
-      messageText = intro ? `${intro}\n\n${detailText}` : detailText;
+      messageText = introLine ? `${introLine}\n\n${detailText}` : detailText;
 
       const contactKeyboard = buildOrderContactKeyboard(detailedOrder);
       if (contactKeyboard) {
