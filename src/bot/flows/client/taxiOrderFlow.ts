@@ -12,12 +12,7 @@ import {
   type CompletedOrderDraft,
 } from '../../services/orders';
 import * as geocode from '../../services/geocode';
-import {
-  estimateTaxiPrice,
-  formatDistance,
-  formatEtaMinutes,
-  formatPriceAmount,
-} from '../../services/pricing';
+import { estimateTaxiPrice, formatPriceAmount } from '../../services/pricing';
 import { clearInlineKeyboard } from '../../services/cleanup';
 import { ensurePrivateCallback, isPrivateChat } from '../../services/access';
 import {
@@ -75,7 +70,6 @@ const TAXI_CREATED_STEP_ID = 'client:taxi:created';
 const TAXI_STATUS_STEP_ID = 'client:taxi:status';
 const TAXI_CONFIRM_ERROR_STEP_ID = 'client:taxi:error:confirm';
 const TAXI_CREATE_ERROR_STEP_ID = 'client:taxi:error:create';
-const TAXI_CITY_MISMATCH_STEP_ID = 'client:taxi:error:city-mismatch';
 
 type ClientPublishStatus = PublishOrderStatus | 'publish_failed';
 
@@ -155,6 +149,20 @@ const remindConfirmationActions = async (ctx: BotContext): Promise<void> => {
   await ui.step(ctx, {
     id: TAXI_CONFIRMATION_HINT_STEP_ID,
     text: 'Используйте кнопки ниже, чтобы подтвердить или отменить заказ.',
+    cleanup: true,
+  });
+};
+
+const remindTaxiDistanceTooFar = async (
+  ctx: BotContext,
+  distanceKm: number,
+): Promise<void> => {
+  await ui.step(ctx, {
+    id: TAXI_DISTANCE_ERROR_STEP_ID,
+    text: [
+      `⚠️ Ссылки выглядят некорректно: расстояние между точками ≈${formatDistance(distanceKm)} км.`,
+      'Убедитесь, что обе ссылки 2ГИС относятся к выбранному городу, и отправьте пункт назначения ещё раз.',
+    ].join('\n'),
     cleanup: true,
   });
 };
@@ -295,14 +303,22 @@ const applyDropoffDetails = async (
   draft: ClientOrderDraftState,
   dropoff: CompletedOrderDraft['dropoff'],
 ): Promise<void> => {
-  draft.dropoff = dropoff;
-
   if (!draft.pickup) {
     logger.warn('Taxi order draft is missing pickup after dropoff geocode');
     draft.stage = 'idle';
     return;
   }
 
+  const distanceKm = calculateDistanceKm(draft.pickup, dropoff);
+  if (!Number.isFinite(distanceKm) || distanceKm > MAX_REASONABLE_DISTANCE_KM) {
+    draft.dropoff = undefined;
+    draft.price = undefined;
+    draft.stage = 'collectingDropoff';
+    await remindTaxiDistanceTooFar(ctx, distanceKm);
+    return;
+  }
+
+  draft.dropoff = dropoff;
   draft.price = estimateTaxiPrice(draft.pickup, dropoff);
   draft.stage = 'awaitingConfirmation';
 

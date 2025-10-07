@@ -14,6 +14,7 @@ import {
 } from '../../services/orders';
 import * as geocode from '../../services/geocode';
 import {
+  calculateDistanceKm,
   estimateDeliveryPrice,
   formatDistance,
   formatEtaMinutes,
@@ -84,7 +85,6 @@ const DELIVERY_CREATE_ERROR_STEP_ID = 'client:delivery:error:create';
 const DELIVERY_ADDRESS_TYPE_HINT_STEP_ID = 'client:delivery:hint:address-type';
 const DELIVERY_ADDRESS_DETAILS_ERROR_STEP_ID = 'client:delivery:error:address-details';
 const DELIVERY_RECIPIENT_PHONE_ERROR_STEP_ID = 'client:delivery:error:recipient-phone';
-const DELIVERY_CITY_MISMATCH_STEP_ID = 'client:delivery:error:city-mismatch';
 
 type ClientPublishStatus = PublishOrderStatus | 'publish_failed';
 
@@ -126,43 +126,6 @@ const remindTwoGisRequirement = async (ctx: BotContext): Promise<void> => {
     text: '⚠️ Принимаем только ссылки 2ГИС. Нажмите «Открыть 2ГИС», выберите точку и отправьте ссылку на неё.',
     cleanup: true,
   });
-};
-
-const doesLocationMatchCity = (location: OrderLocation, city: AppCity): boolean => {
-  const slug = extractTwoGisCitySlug(location.twoGisUrl);
-  if (!slug) {
-    return true;
-  }
-
-  return slug === CITY_2GIS_SLUG[city];
-};
-
-const remindCityMismatch = async (
-  ctx: BotContext,
-  city: AppCity,
-  role: 'pickup' | 'dropoff',
-): Promise<void> => {
-  const cityLabel = CITY_LABEL[city];
-  const roleLabel = role === 'pickup' ? 'забора' : 'доставки';
-  await ui.step(ctx, {
-    id: DELIVERY_CITY_MISMATCH_STEP_ID,
-    text: `⚠️ Адрес ${roleLabel} не относится к выбранному городу ${cityLabel}. Отправьте ссылку из 2ГИС для этого города.`,
-    cleanup: true,
-  });
-};
-
-const ensureLocationMatchesSelectedCity = async (
-  ctx: BotContext,
-  location: OrderLocation,
-  city: AppCity,
-  role: 'pickup' | 'dropoff',
-): Promise<boolean> => {
-  if (doesLocationMatchCity(location, city)) {
-    return true;
-  }
-
-  await remindCityMismatch(ctx, city, role);
-  return false;
 };
 
 const buildAddressTypeKeyboard = () =>
@@ -490,14 +453,22 @@ const applyDropoffDetails = async (
   draft: ClientOrderDraftState,
   dropoff: CompletedOrderDraft['dropoff'],
 ): Promise<void> => {
-  draft.dropoff = dropoff;
-
   if (!draft.pickup) {
     logger.warn('Delivery order draft is missing pickup after dropoff geocode');
     draft.stage = 'idle';
     return;
   }
 
+  const distanceKm = calculateDistanceKm(draft.pickup, dropoff);
+  if (!Number.isFinite(distanceKm) || distanceKm > MAX_REASONABLE_DISTANCE_KM) {
+    draft.dropoff = undefined;
+    draft.price = undefined;
+    draft.stage = 'collectingDropoff';
+    await remindDeliveryDistanceTooFar(ctx, distanceKm);
+    return;
+  }
+
+  draft.dropoff = dropoff;
   draft.price = estimateDeliveryPrice(draft.pickup, dropoff);
   draft.isPrivateHouse = undefined;
   draft.apartment = undefined;
