@@ -163,8 +163,8 @@ const startServer = async (webhookPath: string, port: number): Promise<Server> =
     res.sendStatus(200);
   });
 
-  serverApp.get('/health', healthHandler);
-  serverApp.get('/healthz', healthHandler);
+  serverApp.get('/health', asyncHandler(healthHandler));
+  serverApp.get('/healthz', asyncHandler(healthHandler));
   serverApp.get('/readiness', asyncHandler(readinessHandler));
   serverApp.get('/readyz', asyncHandler(readinessHandler));
   serverApp.get('/metrics', asyncHandler(metricsHandler));

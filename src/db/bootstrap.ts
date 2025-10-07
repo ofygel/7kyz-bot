@@ -102,6 +102,8 @@ export const ensureDatabaseSchema = async (): Promise<void> => {
   }
 };
 
+export const isDatabaseSchemaReady = (): boolean => schemaReady;
+
 /**
  * Testing helper used to reset the bootstrap state between test cases.
  * Not intended for production use.
