@@ -9,3 +9,22 @@ export const dgPointLink = (city: AppCity, query: string): string =>
 
 export const dgABLink = (city: AppCity, from: string, to: string): string =>
   `${buildBase(city)}/directions/points/${encodeURIComponent(from)}~${encodeURIComponent(to)}`;
+
+export const extractTwoGisCitySlug = (value: string | undefined): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    const segments = url.pathname
+      .split('/')
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0);
+
+    const [first] = segments;
+    return first ? first.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+};
