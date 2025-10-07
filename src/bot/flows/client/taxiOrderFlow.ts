@@ -12,13 +12,7 @@ import {
   type CompletedOrderDraft,
 } from '../../services/orders';
 import * as geocode from '../../services/geocode';
-import {
-  calculateDistanceKm,
-  estimateTaxiPrice,
-  formatDistance,
-  formatEtaMinutes,
-  formatPriceAmount,
-} from '../../services/pricing';
+import { estimateTaxiPrice, formatPriceAmount } from '../../services/pricing';
 import { clearInlineKeyboard } from '../../services/cleanup';
 import { ensurePrivateCallback, isPrivateChat } from '../../services/access';
 import {
@@ -76,10 +70,6 @@ const TAXI_CREATED_STEP_ID = 'client:taxi:created';
 const TAXI_STATUS_STEP_ID = 'client:taxi:status';
 const TAXI_CONFIRM_ERROR_STEP_ID = 'client:taxi:error:confirm';
 const TAXI_CREATE_ERROR_STEP_ID = 'client:taxi:error:create';
-const TAXI_CITY_MISMATCH_STEP_ID = 'client:taxi:error:city-mismatch';
-const TAXI_DISTANCE_ERROR_STEP_ID = 'client:taxi:error:distance';
-
-const MAX_REASONABLE_DISTANCE_KM = 200;
 
 type ClientPublishStatus = PublishOrderStatus | 'publish_failed';
 
