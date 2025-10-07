@@ -12,7 +12,13 @@ import {
   type CompletedOrderDraft,
 } from '../../services/orders';
 import * as geocode from '../../services/geocode';
-import { estimateTaxiPrice, formatPriceAmount } from '../../services/pricing';
+import {
+  calculateDistanceKm,
+  estimateTaxiPrice,
+  formatDistance,
+  formatEtaMinutes,
+  formatPriceAmount,
+} from '../../services/pricing';
 import { clearInlineKeyboard } from '../../services/cleanup';
 import { ensurePrivateCallback, isPrivateChat } from '../../services/access';
 import {
@@ -29,8 +35,8 @@ import { CLIENT_MENU_ACTION, sendClientMenu } from '../../../ui/clientMenu';
 import { logClientMenuClick, showMenu } from './menu';
 import { CLIENT_TAXI_ORDER_AGAIN_ACTION, CLIENT_ORDERS_ACTION } from './orderActions';
 import { ensureCitySelected } from '../common/citySelect';
-import type { AppCity } from '../../../domain/cities';
-import { dgBase } from '../../../utils/2gis';
+import { CITY_2GIS_SLUG, CITY_LABEL, type AppCity } from '../../../domain/cities';
+import { dgBase, extractTwoGisCitySlug } from '../../../utils/2gis';
 import { reportOrderCreated, type UserIdentity } from '../../services/reports';
 import {
   decodeRecentLocationId,
@@ -70,6 +76,10 @@ const TAXI_CREATED_STEP_ID = 'client:taxi:created';
 const TAXI_STATUS_STEP_ID = 'client:taxi:status';
 const TAXI_CONFIRM_ERROR_STEP_ID = 'client:taxi:error:confirm';
 const TAXI_CREATE_ERROR_STEP_ID = 'client:taxi:error:create';
+const TAXI_CITY_MISMATCH_STEP_ID = 'client:taxi:error:city-mismatch';
+const TAXI_DISTANCE_ERROR_STEP_ID = 'client:taxi:error:distance';
+
+const MAX_REASONABLE_DISTANCE_KM = 200;
 
 type ClientPublishStatus = PublishOrderStatus | 'publish_failed';
 
@@ -108,10 +118,61 @@ const remindTwoGisRequirement = async (ctx: BotContext): Promise<void> => {
   });
 };
 
+const doesLocationMatchCity = (location: OrderLocation, city: AppCity): boolean => {
+  const slug = extractTwoGisCitySlug(location.twoGisUrl);
+  if (!slug) {
+    return true;
+  }
+
+  return slug === CITY_2GIS_SLUG[city];
+};
+
+const remindCityMismatch = async (
+  ctx: BotContext,
+  city: AppCity,
+  role: 'pickup' | 'dropoff',
+): Promise<void> => {
+  const cityLabel = CITY_LABEL[city];
+  const roleLabel = role === 'pickup' ? 'подачи' : 'назначения';
+  await ui.step(ctx, {
+    id: TAXI_CITY_MISMATCH_STEP_ID,
+    text: `⚠️ Адрес ${roleLabel} не относится к выбранному городу ${cityLabel}. Отправьте ссылку из 2ГИС для этого города.`,
+    cleanup: true,
+  });
+};
+
+const ensureLocationMatchesSelectedCity = async (
+  ctx: BotContext,
+  location: OrderLocation,
+  city: AppCity,
+  role: 'pickup' | 'dropoff',
+): Promise<boolean> => {
+  if (doesLocationMatchCity(location, city)) {
+    return true;
+  }
+
+  await remindCityMismatch(ctx, city, role);
+  return false;
+};
+
 const remindConfirmationActions = async (ctx: BotContext): Promise<void> => {
   await ui.step(ctx, {
     id: TAXI_CONFIRMATION_HINT_STEP_ID,
     text: 'Используйте кнопки ниже, чтобы подтвердить или отменить заказ.',
+    cleanup: true,
+  });
+};
+
+const remindTaxiDistanceTooFar = async (
+  ctx: BotContext,
+  distanceKm: number,
+): Promise<void> => {
+  await ui.step(ctx, {
+    id: TAXI_DISTANCE_ERROR_STEP_ID,
+    text: [
+      `⚠️ Ссылки выглядят некорректно: расстояние между точками ≈${formatDistance(distanceKm)} км.`,
+      'Убедитесь, что обе ссылки 2ГИС относятся к выбранному городу, и отправьте пункт назначения ещё раз.',
+    ].join('\n'),
     cleanup: true,
   });
 };
@@ -252,14 +313,22 @@ const applyDropoffDetails = async (
   draft: ClientOrderDraftState,
   dropoff: CompletedOrderDraft['dropoff'],
 ): Promise<void> => {
-  draft.dropoff = dropoff;
-
   if (!draft.pickup) {
     logger.warn('Taxi order draft is missing pickup after dropoff geocode');
     draft.stage = 'idle';
     return;
   }
 
+  const distanceKm = calculateDistanceKm(draft.pickup, dropoff);
+  if (!Number.isFinite(distanceKm) || distanceKm > MAX_REASONABLE_DISTANCE_KM) {
+    draft.dropoff = undefined;
+    draft.price = undefined;
+    draft.stage = 'collectingDropoff';
+    await remindTaxiDistanceTooFar(ctx, distanceKm);
+    return;
+  }
+
+  draft.dropoff = dropoff;
   draft.price = estimateTaxiPrice(draft.pickup, dropoff);
   draft.stage = 'awaitingConfirmation';
 
@@ -295,6 +364,10 @@ const applyPickupAddress = async (ctx: BotContext, draft: ClientOrderDraftState,
     await handleGeocodingFailure(ctx);
     return;
   }
+  const city = ctx.session.city;
+  if (city && !(await ensureLocationMatchesSelectedCity(ctx, pickup, city, 'pickup'))) {
+    return;
+  }
   await applyPickupDetails(ctx, draft, pickup);
 };
 
@@ -303,6 +376,46 @@ const buildConfirmationKeyboard = () =>
 
 const buildOrderAgainKeyboard = () =>
   buildInlineKeyboard([[{ label: 'Заказать ещё', action: CLIENT_TAXI_ORDER_AGAIN_ACTION }]]);
+
+const buildTaxiOrderCardKeyboard = (order: OrderRecord): InlineKeyboardMarkup | undefined => {
+  const locationsKeyboard = buildOrderLocationsKeyboard(order.city, order.pickup, order.dropoff);
+  const actionsKeyboard = buildInlineKeyboard([
+    [{ label: '📋 Мои заказы', action: CLIENT_ORDERS_ACTION }],
+    [{ label: 'Заказать ещё', action: CLIENT_TAXI_ORDER_AGAIN_ACTION }],
+  ]);
+
+  return mergeInlineKeyboards(locationsKeyboard, actionsKeyboard) ?? actionsKeyboard;
+};
+
+const buildTaxiOrderCardText = (
+  order: OrderRecord,
+  statusLabel: string,
+  publishStatus: ClientPublishStatus,
+): string => {
+  const lines = [
+    `🚕 Заказ №${order.shortId}`,
+    `Статус: ${statusLabel}`,
+    '',
+    `📍 Подача: ${order.pickup.address}`,
+    `🎯 Назначение: ${order.dropoff.address}`,
+    `📏 Расстояние: ${formatDistance(order.price.distanceKm)} км`,
+    `⏱️ В пути: ≈${formatEtaMinutes(order.price.etaMinutes)} мин`,
+    `💰 Стоимость: ${formatPriceAmount(order.price.amount, order.price.currency)}`,
+    '',
+  ];
+
+  if (publishStatus === 'missing_channel') {
+    lines.push('⚠️ Канал исполнителей не настроен. Мы свяжемся с вами вручную.');
+  } else if (publishStatus === 'publish_failed') {
+    lines.push('⚠️ Не удалось отправить заказ водителям. Мы свяжемся с вами вручную.');
+  } else {
+    lines.push('⏳ Отправили заказ водителям и ждём отклика.');
+  }
+
+  lines.push('Я сообщу, как только водитель примет заказ.');
+
+  return lines.join('\n');
+};
 
 const showConfirmation = async (
   ctx: BotContext,
@@ -337,6 +450,10 @@ const applyDropoffAddress = async (
   const dropoff = await geocode.geocodeOrderLocation(text, { city: ctx.session.city });
   if (!dropoff) {
     await handleGeocodingFailure(ctx);
+    return;
+  }
+  const city = ctx.session.city;
+  if (city && !(await ensureLocationMatchesSelectedCity(ctx, dropoff, city, 'dropoff'))) {
     return;
   }
   await applyDropoffDetails(ctx, draft, dropoff);
@@ -390,19 +507,8 @@ const notifyOrderCreated = async (
     recovery: { type: 'client:taxi:status', payload: statusPayload },
   });
 
-  const lines = [
-    publishStatus === 'publish_failed'
-      ? `Заказ №${order.id} записан, но не был отправлен водителям.`
-      : `Заказ №${order.id} успешно создан.`,
-    `Стоимость по расчёту: ${formatPriceAmount(order.price.amount, order.price.currency)}.`,
-  ];
-
-  if (publishStatus === 'missing_channel') {
-    lines.push('⚠️ Канал исполнителей не настроен. Мы свяжемся с вами вручную.');
-  }
-  if (publishStatus === 'publish_failed') {
-    lines.push('⚠️ Не удалось отправить заказ водителям. Мы свяжемся с вами вручную.');
-  }
+  const cardText = buildTaxiOrderCardText(order, statusLabel, publishStatus);
+  const cardKeyboard = buildTaxiOrderCardKeyboard(order);
 
   const customer: UserIdentity = {
     telegramId: ctx.auth.user.telegramId,
@@ -416,10 +522,10 @@ const notifyOrderCreated = async (
 
   await ui.step(ctx, {
     id: TAXI_CREATED_STEP_ID,
-    text: lines.join('\n'),
+    text: cardText,
     cleanup: true,
     homeAction: CLIENT_MENU_ACTION,
-    keyboard: buildOrderAgainKeyboard(),
+    keyboard: cardKeyboard,
   });
   await sendClientMenu(ctx, 'Готово. Хотите оформить новый заказ?');
 };

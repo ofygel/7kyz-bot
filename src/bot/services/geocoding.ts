@@ -452,8 +452,18 @@ const parse2GisLink = async (value: string): Promise<Parsed2GisLink | null> => {
 };
 
 export const isTwoGisLink = (value: string): boolean => {
-  const url = parseUrl(value);
-  return Boolean(url && is2GisHostname(url.hostname));
+  const directUrl = parseUrl(value);
+  if (directUrl && is2GisHostname(directUrl.hostname)) {
+    return true;
+  }
+
+  const extracted = extractPreferredUrl(value);
+  if (!extracted) {
+    return false;
+  }
+
+  const extractedUrl = parseUrl(extracted);
+  return Boolean(extractedUrl && is2GisHostname(extractedUrl.hostname));
 };
 
 interface TwoGisPoint {

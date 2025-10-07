@@ -184,7 +184,7 @@ test('taxi flow accepts 2GIS links', { concurrency: false }, async (t) => {
   await taxiOrderTestables.applyPickupAddress(
     ctx,
     draft,
-    'https://2gis.kz/almaty/geo/70000001000000000?queryState=point',
+    'Оспанова улица\nhttps://2gis.kz/almaty/geo/70000001000000000?queryState=point',
   );
 
   assert.equal(draft.stage, 'collectingDropoff');
@@ -192,6 +192,149 @@ test('taxi flow accepts 2GIS links', { concurrency: false }, async (t) => {
   assert.ok(
     uiCalls.some((call) => call.id === 'client:taxi:step' && /Теперь отправьте пункт назначения/iu.test(call.text)),
     'successful pickup should request dropoff point',
+  );
+});
+
+test('taxi flow rejects 2GIS links from another city', { concurrency: false }, async (t) => {
+  ensureBotEnv();
+
+  const uiCalls = stubUi(t);
+  stubDb(t);
+
+  const geocode = require('../src/bot/services/geocode');
+  const originalGeocode = geocode.geocodeOrderLocation;
+  geocode.geocodeOrderLocation = async () => ({
+    query: '2ГИС точка',
+    address: 'Астана, Абая 1',
+    latitude: 51.128,
+    longitude: 71.43,
+    twoGisUrl: 'https://2gis.kz/astana/geo/70000001000000002',
+  });
+  t.after(() => {
+    geocode.geocodeOrderLocation = originalGeocode;
+  });
+
+  const { taxiOrderTestables } = require('../src/bot/flows/client/taxiOrderFlow');
+
+  const draft = { stage: 'collectingPickup' };
+  const ctx = createTaxiContext(draft);
+
+  await taxiOrderTestables.applyPickupAddress(
+    ctx,
+    draft,
+    'Астана\nhttps://2gis.kz/astana/geo/70000001000000002',
+  );
+
+  assert.equal(draft.stage, 'collectingPickup');
+  assert.ok(
+    uiCalls.some(
+      (call) =>
+        call.id === 'client:taxi:error:city-mismatch' && /Алматы/iu.test(call.text) && /Адрес подачи/iu.test(call.text),
+    ),
+    'address from another city should trigger mismatch warning',
+  );
+});
+
+test('taxi flow rejects dropoff from another city', { concurrency: false }, async (t) => {
+  ensureBotEnv();
+
+  const uiCalls = stubUi(t);
+  stubDb(t);
+
+  const geocode = require('../src/bot/services/geocode');
+  const originalGeocode = geocode.geocodeOrderLocation;
+  geocode.geocodeOrderLocation = async () => ({
+    query: '2ГИС точка',
+    address: 'Астана, Абая 1',
+    latitude: 51.128,
+    longitude: 71.43,
+    twoGisUrl: 'https://2gis.kz/astana/geo/70000001000000005',
+  });
+  t.after(() => {
+    geocode.geocodeOrderLocation = originalGeocode;
+  });
+
+  const { taxiOrderTestables } = require('../src/bot/flows/client/taxiOrderFlow');
+
+  const draft = {
+    stage: 'collectingDropoff',
+    pickup: {
+      query: 'pickup',
+      address: 'Алматы, Абая 1',
+      latitude: 43.256,
+      longitude: 76.945,
+      twoGisUrl: 'https://2gis.kz/almaty/geo/70000001000000000',
+    },
+  };
+  const ctx = createTaxiContext(draft);
+
+  await taxiOrderTestables.applyDropoffAddress(
+    ctx,
+    draft,
+    'Астана\nhttps://2gis.kz/astana/geo/70000001000000005',
+  );
+
+  assert.equal(draft.stage, 'collectingDropoff');
+  assert.equal(draft.dropoff, undefined);
+  assert.ok(
+    uiCalls.some(
+      (call) =>
+        call.id === 'client:taxi:error:city-mismatch' &&
+        /Алматы/iu.test(call.text) &&
+        /Адрес назначения/iu.test(call.text),
+    ),
+    'dropoff from another city should trigger mismatch warning',
+  );
+});
+
+test('taxi flow warns when dropoff distance is unrealistic', { concurrency: false }, async (t) => {
+  ensureBotEnv();
+
+  const uiCalls = stubUi(t);
+  stubDb(t);
+
+  const geocode = require('../src/bot/services/geocode');
+  const originalGeocode = geocode.geocodeOrderLocation;
+  geocode.geocodeOrderLocation = async () => ({
+    query: 'Очень далёкая точка',
+    address: 'Москва, Красная площадь',
+    latitude: 55.752,
+    longitude: 37.617,
+    twoGisUrl: 'https://2gis.kz/almaty/geo/70000001000000006',
+  });
+  t.after(() => {
+    geocode.geocodeOrderLocation = originalGeocode;
+  });
+
+  const { taxiOrderTestables } = require('../src/bot/flows/client/taxiOrderFlow');
+
+  const draft = {
+    stage: 'collectingDropoff',
+    pickup: {
+      query: 'pickup',
+      address: 'Алматы, Абая 1',
+      latitude: 43.256,
+      longitude: 76.945,
+      twoGisUrl: 'https://2gis.kz/almaty/geo/70000001000000000',
+    },
+  };
+  const ctx = createTaxiContext(draft);
+
+  await taxiOrderTestables.applyDropoffAddress(
+    ctx,
+    draft,
+    'Москва\nhttps://2gis.kz/almaty/geo/70000001000000006/37.617,55.752',
+  );
+
+  assert.equal(draft.stage, 'collectingDropoff');
+  assert.equal(draft.dropoff, undefined);
+  assert.equal(draft.price, undefined);
+  assert.ok(
+    uiCalls.some(
+      (call) =>
+        call.id === 'client:taxi:error:distance' && /расстояние/iu.test(call.text) && /некорректно/iu.test(call.text),
+    ),
+    'unrealistic distance should trigger warning',
   );
 });
 
@@ -289,7 +432,7 @@ test('delivery flow accepts 2GIS links', { concurrency: false }, async (t) => {
   await deliveryOrderTestables.applyPickupAddress(
     ctx,
     draft,
-    'https://2gis.kz/almaty/firm/70000001000000001?queryState=firm',
+    'Склад на Абая\nhttps://2gis.kz/almaty/firm/70000001000000001?queryState=firm',
   );
 
   assert.equal(draft.stage, 'collectingDropoff');
@@ -297,6 +440,153 @@ test('delivery flow accepts 2GIS links', { concurrency: false }, async (t) => {
   assert.ok(
     uiCalls.some((call) => call.id === 'client:delivery:step' && /Адрес доставки/iu.test(call.text)),
     'successful pickup should request dropoff address details',
+  );
+});
+
+test('delivery flow rejects 2GIS links from another city', { concurrency: false }, async (t) => {
+  ensureBotEnv();
+
+  const uiCalls = stubUi(t);
+  stubDb(t);
+
+  const geocode = require('../src/bot/services/geocode');
+  const originalGeocode = geocode.geocodeOrderLocation;
+  geocode.geocodeOrderLocation = async () => ({
+    query: '2ГИС склад',
+    address: 'Астана, Назарбаева 10',
+    latitude: 51.15,
+    longitude: 71.47,
+    twoGisUrl: 'https://2gis.kz/astana/firm/70000001000000003',
+  });
+  t.after(() => {
+    geocode.geocodeOrderLocation = originalGeocode;
+  });
+
+  const { deliveryOrderTestables } = require('../src/bot/flows/client/deliveryOrderFlow');
+
+  const draft = { stage: 'collectingPickup' };
+  const ctx = createDeliveryContext(draft);
+
+  await deliveryOrderTestables.applyPickupAddress(
+    ctx,
+    draft,
+    'Астана\nhttps://2gis.kz/astana/firm/70000001000000003',
+  );
+
+  assert.equal(draft.stage, 'collectingPickup');
+  assert.ok(
+    uiCalls.some(
+      (call) =>
+        call.id === 'client:delivery:error:city-mismatch' &&
+        /Алматы/iu.test(call.text) &&
+        /Адрес забора/iu.test(call.text),
+    ),
+    'delivery pickup from another city should trigger mismatch warning',
+  );
+});
+
+test('delivery flow rejects dropoff from another city', { concurrency: false }, async (t) => {
+  ensureBotEnv();
+
+  const uiCalls = stubUi(t);
+  stubDb(t);
+
+  const geocode = require('../src/bot/services/geocode');
+  const originalGeocode = geocode.geocodeOrderLocation;
+  geocode.geocodeOrderLocation = async () => ({
+    query: '2ГИС склад',
+    address: 'Астана, Назарбаева 10',
+    latitude: 51.15,
+    longitude: 71.47,
+    twoGisUrl: 'https://2gis.kz/astana/firm/70000001000000004',
+  });
+  t.after(() => {
+    geocode.geocodeOrderLocation = originalGeocode;
+  });
+
+  const { deliveryOrderTestables } = require('../src/bot/flows/client/deliveryOrderFlow');
+
+  const draft = {
+    stage: 'collectingDropoff',
+    pickup: {
+      query: 'pickup',
+      address: 'Алматы, Назарбаева 10',
+      latitude: 43.25,
+      longitude: 76.92,
+      twoGisUrl: 'https://2gis.kz/almaty/firm/70000001000000001',
+    },
+  };
+  const ctx = createDeliveryContext(draft);
+
+  await deliveryOrderTestables.applyDropoffAddress(
+    ctx,
+    draft,
+    'Астана\nhttps://2gis.kz/astana/firm/70000001000000004',
+  );
+
+  assert.equal(draft.stage, 'collectingDropoff');
+  assert.equal(draft.dropoff, undefined);
+  assert.ok(
+    uiCalls.some(
+      (call) =>
+        call.id === 'client:delivery:error:city-mismatch' &&
+        /Алматы/iu.test(call.text) &&
+        /Адрес доставки/iu.test(call.text),
+    ),
+    'delivery dropoff from another city should trigger mismatch warning',
+  );
+});
+
+test('delivery flow warns when dropoff distance is unrealistic', { concurrency: false }, async (t) => {
+  ensureBotEnv();
+
+  const uiCalls = stubUi(t);
+  stubDb(t);
+
+  const geocode = require('../src/bot/services/geocode');
+  const originalGeocode = geocode.geocodeOrderLocation;
+  geocode.geocodeOrderLocation = async () => ({
+    query: 'Очень далёкий склад',
+    address: 'Москва, склад',
+    latitude: 55.75,
+    longitude: 37.62,
+    twoGisUrl: 'https://2gis.kz/almaty/firm/70000001000000005',
+  });
+  t.after(() => {
+    geocode.geocodeOrderLocation = originalGeocode;
+  });
+
+  const { deliveryOrderTestables } = require('../src/bot/flows/client/deliveryOrderFlow');
+
+  const draft = {
+    stage: 'collectingDropoff',
+    pickup: {
+      query: 'pickup',
+      address: 'Алматы, Назарбаева 10',
+      latitude: 43.25,
+      longitude: 76.92,
+      twoGisUrl: 'https://2gis.kz/almaty/firm/70000001000000001',
+    },
+  };
+  const ctx = createDeliveryContext(draft);
+
+  await deliveryOrderTestables.applyDropoffAddress(
+    ctx,
+    draft,
+    'Москва\nhttps://2gis.kz/almaty/firm/70000001000000005/37.62,55.75',
+  );
+
+  assert.equal(draft.stage, 'collectingDropoff');
+  assert.equal(draft.dropoff, undefined);
+  assert.equal(draft.price, undefined);
+  assert.ok(
+    uiCalls.some(
+      (call) =>
+        call.id === 'client:delivery:error:distance' &&
+        /Расстояние/iu.test(call.text) &&
+        /нереалистично/iu.test(call.text),
+    ),
+    'unrealistic delivery distance should trigger warning',
   );
 });
 
