@@ -97,7 +97,7 @@ export const createPricingService = (
   generalTariff: TariffRates | null = null,
 ): PricingService => ({
   estimateTaxiPrice: createEstimator(pricing.taxi, generalTariff),
-  estimateDeliveryPrice: createEstimator(pricing.delivery, null),
+  estimateDeliveryPrice: createEstimator(pricing.delivery, generalTariff),
 });
 
 const defaultPricingService = createPricingService(config.pricing, config.tariff);
