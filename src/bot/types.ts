@@ -216,6 +216,8 @@ export interface ClientOrderDraftState {
   entrance?: string;
   floor?: string;
   recipientPhone?: string;
+  lastFailedGeocodeStage?: 'pickup' | 'dropoff';
+  geocodeFailureCount?: number;
 }
 
 export interface ClientFlowState {

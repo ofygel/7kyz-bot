@@ -8,7 +8,9 @@ import type { OrderRecord, OrderLocation } from '../../../types';
 import {
   buildCustomerName,
   buildOrderSummary,
+  clearGeocodeFailures,
   isOrderDraftComplete,
+  recordGeocodeFailure,
   resetClientOrderDraft,
   type CompletedOrderDraft,
 } from '../../services/orders';
@@ -85,6 +87,9 @@ const DELIVERY_CREATE_ERROR_STEP_ID = 'client:delivery:error:create';
 const DELIVERY_ADDRESS_TYPE_HINT_STEP_ID = 'client:delivery:hint:address-type';
 const DELIVERY_ADDRESS_DETAILS_ERROR_STEP_ID = 'client:delivery:error:address-details';
 const DELIVERY_RECIPIENT_PHONE_ERROR_STEP_ID = 'client:delivery:error:recipient-phone';
+const DELIVERY_CITY_MISMATCH_STEP_ID = 'client:delivery:error:city-mismatch';
+const DELIVERY_DISTANCE_ERROR_STEP_ID = 'client:delivery:error:distance';
+const MAX_REASONABLE_DISTANCE_KM = 120;
 
 type ClientPublishStatus = PublishOrderStatus | 'publish_failed';
 
@@ -124,6 +129,57 @@ const remindTwoGisRequirement = async (ctx: BotContext): Promise<void> => {
   await ui.step(ctx, {
     id: DELIVERY_ADDRESS_REQUIREMENT_STEP_ID,
     text: '⚠️ Принимаем только ссылки 2ГИС. Нажмите «Открыть 2ГИС», выберите точку и отправьте ссылку на неё.',
+    cleanup: true,
+  });
+};
+
+const doesLocationMatchCity = (location: OrderLocation, city: AppCity): boolean => {
+  const slug = extractTwoGisCitySlug(location.twoGisUrl);
+  if (!slug) {
+    return true;
+  }
+
+  return slug === CITY_2GIS_SLUG[city];
+};
+
+const remindCityMismatch = async (
+  ctx: BotContext,
+  city: AppCity,
+  role: 'pickup' | 'dropoff',
+): Promise<void> => {
+  const cityLabel = CITY_LABEL[city];
+  const roleLabel = role === 'pickup' ? 'забора' : 'доставки';
+  await ui.step(ctx, {
+    id: DELIVERY_CITY_MISMATCH_STEP_ID,
+    text: `⚠️ Адрес ${roleLabel} не относится к выбранному городу ${cityLabel}. Отправьте ссылку 2ГИС для этого города и попробуйте ещё раз.`,
+    cleanup: true,
+  });
+};
+
+const ensureLocationMatchesSelectedCity = async (
+  ctx: BotContext,
+  location: OrderLocation,
+  city: AppCity,
+  role: 'pickup' | 'dropoff',
+): Promise<boolean> => {
+  if (doesLocationMatchCity(location, city)) {
+    return true;
+  }
+
+  await remindCityMismatch(ctx, city, role);
+  return false;
+};
+
+const remindDeliveryDistanceTooFar = async (
+  ctx: BotContext,
+  distanceKm: number,
+): Promise<void> => {
+  await ui.step(ctx, {
+    id: DELIVERY_DISTANCE_ERROR_STEP_ID,
+    text: [
+      `⚠️ Ссылки выглядят некорректно: расстояние между точками ≈${formatDistance(distanceKm)} км.`,
+      'Убедитесь, что обе ссылки 2ГИС относятся к выбранному городу, и отправьте адрес доставки ещё раз.',
+    ].join('\n'),
     cleanup: true,
   });
 };
@@ -413,10 +469,20 @@ const requestDeliveryComment = async (
   );
 };
 
-const handleGeocodingFailure = async (ctx: BotContext): Promise<void> => {
+const buildGeocodeFailureText = (attempt: number): string =>
+  attempt > 1
+    ? `Не удалось распознать ссылку 2ГИС. Откройте 2ГИС ещё раз и пришлите ссылку на нужную точку. Попробуйте ещё раз — это попытка №${attempt}.`
+    : 'Не удалось распознать ссылку 2ГИС. Откройте 2ГИС ещё раз и пришлите ссылку на нужную точку.';
+
+const handleGeocodingFailure = async (
+  ctx: BotContext,
+  draft: ClientOrderDraftState,
+  stage: 'pickup' | 'dropoff',
+): Promise<void> => {
+  const attempt = recordGeocodeFailure(draft, stage);
   await ui.step(ctx, {
     id: DELIVERY_GEOCODE_ERROR_STEP_ID,
-    text: 'Не удалось распознать ссылку 2ГИС. Откройте 2ГИС ещё раз и пришлите ссылку на нужную точку.',
+    text: buildGeocodeFailureText(attempt),
     cleanup: true,
   });
 };
@@ -426,6 +492,7 @@ const applyPickupDetails = async (
   draft: ClientOrderDraftState,
   pickup: CompletedOrderDraft['pickup'],
 ): Promise<void> => {
+  clearGeocodeFailures(draft);
   draft.pickup = pickup;
   draft.stage = 'collectingDropoff';
 
@@ -468,6 +535,7 @@ const applyDropoffDetails = async (
     return;
   }
 
+  clearGeocodeFailures(draft);
   draft.dropoff = dropoff;
   draft.price = estimateDeliveryPrice(draft.pickup, dropoff);
   draft.isPrivateHouse = undefined;
@@ -500,7 +568,7 @@ const applyPickupAddress = async (ctx: BotContext, draft: ClientOrderDraftState,
 
   const pickup = await geocode.geocodeOrderLocation(text, { city: ctx.session.city });
   if (!pickup) {
-    await handleGeocodingFailure(ctx);
+    await handleGeocodingFailure(ctx, draft, 'pickup');
     return;
   }
   const city = ctx.session.city;
@@ -620,7 +688,7 @@ const applyDropoffAddress = async (
 
   const dropoff = await geocode.geocodeOrderLocation(text, { city: ctx.session.city });
   if (!dropoff) {
-    await handleGeocodingFailure(ctx);
+    await handleGeocodingFailure(ctx, draft, 'dropoff');
     return;
   }
   const city = ctx.session.city;
