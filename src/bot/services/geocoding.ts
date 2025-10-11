@@ -1,5 +1,5 @@
 import { config } from '../../config';
-import { extractPreferredUrl } from '../../lib/extractPreferredUrl';
+import { extractPreferredUrl, removeUrls } from '../../lib/extractPreferredUrl';
 
 export interface GeocodingResult {
   query: string;
@@ -1098,7 +1098,9 @@ export const geocodeAddress = async (
   const extractedUrl = extractPreferredUrl(trimmed);
   const preferredTwoGisUrl = extractedUrl && isTwoGisLink(extractedUrl) ? extractedUrl : null;
 
-  const normalizedQuery = normaliseQuery(trimmed);
+  const rawNormalizedQuery = normaliseQuery(trimmed);
+  const strippedQuery = removeUrls(trimmed);
+  const normalizedQuery = strippedQuery ? normaliseQuery(strippedQuery) : rawNormalizedQuery;
   const cityName = options.cityName?.trim();
   const searchQuery = buildCityAwareQuery(normalizedQuery, cityName);
 

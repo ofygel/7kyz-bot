@@ -25,6 +25,25 @@ export const resetClientOrderDraft = (draft: ClientOrderDraftState): void => {
   draft.entrance = undefined;
   draft.floor = undefined;
   draft.recipientPhone = undefined;
+  draft.lastFailedGeocodeStage = undefined;
+  draft.geocodeFailureCount = undefined;
+};
+
+export type GeocodeStage = 'pickup' | 'dropoff';
+
+export const recordGeocodeFailure = (
+  draft: ClientOrderDraftState,
+  stage: GeocodeStage,
+): number => {
+  const nextCount = draft.lastFailedGeocodeStage === stage ? (draft.geocodeFailureCount ?? 0) + 1 : 1;
+  draft.lastFailedGeocodeStage = stage;
+  draft.geocodeFailureCount = nextCount;
+  return nextCount;
+};
+
+export const clearGeocodeFailures = (draft: ClientOrderDraftState): void => {
+  draft.lastFailedGeocodeStage = undefined;
+  draft.geocodeFailureCount = undefined;
 };
 
 export const isOrderDraftComplete = (

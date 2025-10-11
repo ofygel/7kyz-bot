@@ -8,11 +8,19 @@ import type { OrderRecord, OrderLocation, OrderPriceDetails } from '../../../typ
 import {
   buildCustomerName,
   buildOrderSummary,
+  clearGeocodeFailures,
+  recordGeocodeFailure,
   resetClientOrderDraft,
   type CompletedOrderDraft,
 } from '../../services/orders';
 import * as geocode from '../../services/geocode';
-import { estimateTaxiPrice, formatPriceAmount } from '../../services/pricing';
+import {
+  calculateDistanceKm,
+  estimateTaxiPrice,
+  formatDistance,
+  formatEtaMinutes,
+  formatPriceAmount,
+} from '../../services/pricing';
 import { clearInlineKeyboard } from '../../services/cleanup';
 import { ensurePrivateCallback, isPrivateChat } from '../../services/access';
 import {
@@ -70,6 +78,9 @@ const TAXI_CREATED_STEP_ID = 'client:taxi:created';
 const TAXI_STATUS_STEP_ID = 'client:taxi:status';
 const TAXI_CONFIRM_ERROR_STEP_ID = 'client:taxi:error:confirm';
 const TAXI_CREATE_ERROR_STEP_ID = 'client:taxi:error:create';
+const TAXI_CITY_MISMATCH_STEP_ID = 'client:taxi:error:city-mismatch';
+const TAXI_DISTANCE_ERROR_STEP_ID = 'client:taxi:error:distance';
+const MAX_REASONABLE_DISTANCE_KM = 120;
 
 type ClientPublishStatus = PublishOrderStatus | 'publish_failed';
 
@@ -254,10 +265,20 @@ const requestDropoffAddress = async (
   );
 };
 
-const handleGeocodingFailure = async (ctx: BotContext): Promise<void> => {
+const buildGeocodeFailureText = (attempt: number): string =>
+  attempt > 1
+    ? `Не удалось распознать ссылку 2ГИС. Откройте 2ГИС ещё раз и пришлите ссылку на нужную точку. Попробуйте ещё раз — это попытка №${attempt}.`
+    : 'Не удалось распознать ссылку 2ГИС. Откройте 2ГИС ещё раз и пришлите ссылку на нужную точку.';
+
+const handleGeocodingFailure = async (
+  ctx: BotContext,
+  draft: ClientOrderDraftState,
+  stage: 'pickup' | 'dropoff',
+): Promise<void> => {
+  const attempt = recordGeocodeFailure(draft, stage);
   await ui.step(ctx, {
     id: TAXI_GEOCODE_ERROR_STEP_ID,
-    text: 'Не удалось распознать ссылку 2ГИС. Откройте 2ГИС ещё раз и пришлите ссылку на нужную точку.',
+    text: buildGeocodeFailureText(attempt),
     cleanup: true,
   });
 };
@@ -267,6 +288,7 @@ const applyPickupDetails = async (
   draft: ClientOrderDraftState,
   pickup: CompletedOrderDraft['pickup'],
 ): Promise<void> => {
+  clearGeocodeFailures(draft);
   draft.pickup = pickup;
   draft.stage = 'collectingDropoff';
 
@@ -318,6 +340,7 @@ const applyDropoffDetails = async (
     return;
   }
 
+  clearGeocodeFailures(draft);
   draft.dropoff = dropoff;
   draft.price = estimateTaxiPrice(draft.pickup, dropoff);
   draft.stage = 'awaitingConfirmation';
@@ -351,7 +374,7 @@ const applyPickupAddress = async (ctx: BotContext, draft: ClientOrderDraftState,
 
   const pickup = await geocode.geocodeOrderLocation(text, { city: ctx.session.city });
   if (!pickup) {
-    await handleGeocodingFailure(ctx);
+    await handleGeocodingFailure(ctx, draft, 'pickup');
     return;
   }
   const city = ctx.session.city;
@@ -439,7 +462,7 @@ const applyDropoffAddress = async (
 
   const dropoff = await geocode.geocodeOrderLocation(text, { city: ctx.session.city });
   if (!dropoff) {
-    await handleGeocodingFailure(ctx);
+    await handleGeocodingFailure(ctx, draft, 'dropoff');
     return;
   }
   const city = ctx.session.city;
