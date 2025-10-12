@@ -22,6 +22,7 @@ import { ORDER_KIND_ICONS, formatStatusLabel } from '../../orders/formatting';
 import { buildInlineKeyboard } from '../../keyboards/common';
 import { buildOrderLocationsKeyboard } from '../../keyboards/orders';
 import { formatDistance, formatEtaMinutes, formatPriceAmount } from '../../services/pricing';
+import { executorFinishErrorCounter } from '../../../metrics/business';
 
 const ORDERS_INFO_STEP_ID = 'executor:orders:info';
 const SUPPORT_MENTION = config.support.mention;
@@ -137,8 +138,10 @@ const buildExecutorOrderDetailText = (order: OrderWithExecutor): string => {
     lines.push('', `📝 Комментарий клиента: ${order.clientComment.trim()}`);
   }
 
-  if (order.status === 'claimed' || order.status === 'in_progress') {
-    lines.push('', 'Завершите заказ после выполнения, чтобы освободить очередь.');
+  if (order.status === 'claimed') {
+    lines.push('', 'Как будете в пути, нажмите «🛑 Завершить заказ», чтобы отметить выезд.');
+  } else if (order.status === 'in_progress') {
+    lines.push('', 'Когда доставите заказ, нажмите «🛑 Завершить заказ» ещё раз.');
   }
 
   if (order.status === 'finished') {
@@ -296,6 +299,7 @@ const completeExecutorOrder = async (ctx: BotContext, orderId: number): Promise<
 
     const result = await completeOrderByExecutor(orderId, executorId);
     if (!result) {
+      executorFinishErrorCounter.inc();
       logger.warn(
         { orderId, executorId, prevStatus: snapshot?.status },
         'Executor order completion returned no result',
@@ -303,6 +307,10 @@ const completeExecutorOrder = async (ctx: BotContext, orderId: number): Promise<
 
       if (snapshot?.status === 'finished') {
         await ctx.answerCbQuery('Заказ уже завершён.', { show_alert: true });
+      } else if (snapshot?.status === 'in_progress') {
+        await ctx.answerCbQuery('Заказ уже отмечен как выполняемый. Нажмите ещё раз, когда завершите.', {
+          show_alert: true,
+        });
       } else {
         await ctx.answerCbQuery('Не удалось завершить заказ. Проверьте статус и попробуйте снова.', {
           show_alert: true,
@@ -311,14 +319,46 @@ const completeExecutorOrder = async (ctx: BotContext, orderId: number): Promise<
       return;
     }
 
-    await ctx.answerCbQuery('Заказ отмечен завершённым.');
-    logger.info({ orderId, executorId, prevStatus: snapshot?.status ?? 'unknown' }, 'Executor completed order');
+    if (result.transition === 'started') {
+      await ctx.answerCbQuery('Статус обновлён: исполнитель выехал. Нажмите ещё раз, когда завершите.');
+      logger.info(
+        { orderId, executorId, prevStatus: snapshot?.status ?? 'unknown' },
+        'Executor marked order as in_progress',
+      );
 
-    if (result.clientId) {
+      let refreshed: OrderWithExecutor | null = null;
+      try {
+        refreshed = await getOrderWithExecutorById(orderId);
+      } catch (refreshError) {
+        logger.debug({ err: refreshError, orderId, executorId }, 'Failed to reload order after marking in progress');
+      }
+
+      if (!refreshed && snapshot) {
+        refreshed = {
+          ...snapshot,
+          status: 'in_progress',
+          updatedAt: new Date(),
+        } satisfies OrderWithExecutor;
+      }
+
+      if (refreshed) {
+        await renderExecutorOrderDetail(ctx, refreshed);
+      }
+
+      return;
+    }
+
+    await ctx.answerCbQuery('Заказ отмечен завершённым.');
+    logger.info(
+      { orderId, executorId, prevStatus: snapshot?.status ?? 'unknown' },
+      'Executor completed order',
+    );
+
+    if (result.order.clientId) {
       ctx.telegram
         .sendMessage(
-          result.clientId,
-          `Ваш заказ #${result.shortId} завершён исполнителем. Если это ошибка — ответьте «/dispute ${result.id}».`,
+          result.order.clientId,
+          `Ваш заказ #${result.order.shortId} завершён исполнителем. Если это ошибка — ответьте «/dispute ${result.order.id}».`,
         )
         .catch((notifyError) => {
           logger.warn(
@@ -339,6 +379,7 @@ const completeExecutorOrder = async (ctx: BotContext, orderId: number): Promise<
 
     await renderActiveOrdersList(ctx);
   } catch (error) {
+    executorFinishErrorCounter.inc();
     await handleOrdersFailure(ctx, 'complete', error);
   }
 };

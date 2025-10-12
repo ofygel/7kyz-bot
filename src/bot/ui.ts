@@ -49,6 +49,14 @@ const ensureUiState = (ctx: BotContext): UiSessionState => {
   return ctx.session.ui;
 };
 
+const TELEGRAM_RETRY_ATTEMPTS = 3;
+const TELEGRAM_RETRY_DELAY_MS = 200;
+
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 const isMessageNotModifiedError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') {
     return false;
@@ -88,6 +96,46 @@ const isReplyMessageNotFoundError = (error: unknown): boolean => {
     message.includes('reply message not found') ||
     message.includes('REPLY_MESSAGE_NOT_FOUND')
   );
+};
+
+const shouldRetryTelegramError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const candidate = error as { code?: unknown; statusCode?: unknown; response?: unknown };
+  if (candidate.code === 'ETELEGRAM') {
+    return true;
+  }
+
+  if (candidate.statusCode === 429) {
+    return true;
+  }
+
+  const response = candidate.response as { error_code?: unknown } | undefined;
+  if (response && typeof response.error_code === 'number' && response.error_code === 429) {
+    return true;
+  }
+
+  return false;
+};
+
+const withTelegramRetry = async <T>(operation: () => Promise<T>): Promise<T> => {
+  let attempt = 0;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await operation();
+    } catch (error) {
+      attempt += 1;
+      if (attempt >= TELEGRAM_RETRY_ATTEMPTS || !shouldRetryTelegramError(error)) {
+        throw error;
+      }
+
+      await delay(TELEGRAM_RETRY_DELAY_MS);
+    }
+  }
 };
 
 const registerHomeAction = (state: UiSessionState, action: string): void => {
@@ -196,11 +244,13 @@ export const ui = {
     }
     if (existing && existing.chatId === chatId && isInlineKeyboard(replyMarkup)) {
       try {
-        await ctx.telegram.editMessageText(chatId, existing.messageId, undefined, options.text, {
-          parse_mode: options.parseMode,
-          reply_markup: replyMarkup,
-          link_preview_options: options.linkPreviewOptions,
-        });
+        await withTelegramRetry(() =>
+          ctx.telegram.editMessageText(chatId, existing.messageId, undefined, options.text, {
+            parse_mode: options.parseMode,
+            reply_markup: replyMarkup,
+            link_preview_options: options.linkPreviewOptions,
+          }),
+        );
         existing.cleanup = cleanup;
         await trackFlowStep(ctx, options);
         return { messageId: existing.messageId, sent: false };
@@ -233,7 +283,7 @@ export const ui = {
 
     let message;
     try {
-      message = await ctx.reply(options.text, extra);
+      message = await withTelegramRetry(() => ctx.reply(options.text, extra));
     } catch (error) {
       if (!isReplyMessageNotFoundError(error)) {
         throw error;
@@ -244,7 +294,7 @@ export const ui = {
         'Reply failed, retrying step message without reply reference',
       );
 
-      message = await ctx.telegram.sendMessage(chatId, options.text, extra);
+      message = await withTelegramRetry(() => ctx.telegram.sendMessage(chatId, options.text, extra));
     }
 
     const messageId = message.message_id;

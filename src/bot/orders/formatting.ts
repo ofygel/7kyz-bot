@@ -18,8 +18,8 @@ export const ORDER_KIND_LABELS: Record<OrderWithExecutor['kind'], string> = {
 const ORDER_STATUS_TEXT: Record<OrderStatus, { short: string; full: string }> = {
   new: { short: 'обрабатывается', full: 'Обрабатывается оператором' },
   open: { short: 'ожидает исполнителя', full: 'Ожидает исполнителя' },
-  claimed: { short: 'в работе', full: 'Выполняется исполнителем' },
-  in_progress: { short: 'в работе', full: 'Исполнитель подтвердил начало выполнения' },
+  claimed: { short: 'исполнитель назначен', full: 'Исполнитель назначен и готовится к выезду' },
+  in_progress: { short: 'исполнитель выехал', full: 'Исполнитель выехал к вам' },
   cancelled: { short: 'отменён', full: 'Заказ отменён' },
   finished: { short: 'завершён', full: 'Заказ выполнен' },
   expired: { short: 'истёк', full: 'Срок выполнения истёк' },
