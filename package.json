@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "db:migrate": "dbmate --migrations-dir=db/migrations --wait",
     "ctr:report": "node dist/scripts/ctrReport.js",
-    "lint:unused": "ts-prune --exit"
+    "lint:unused": "ts-prune --exit",
+    "bot:audit": "ts-node --transpile-only src/scripts/botAudit.ts"
   },
   "dependencies": {
     "@sentry/node": "^7.120.0",
