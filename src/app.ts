@@ -58,6 +58,7 @@ import { pool } from './db';
 import { ensureDatabaseSchema } from './db/bootstrap';
 import { observeStartupTaskRetryScheduled, observeStartupTaskRetrySuccess } from './metrics/prometheus';
 import { closeRedisClient } from './infra/redis';
+import { callbackRateLimit } from './bot/middlewares/callbackRateLimit';
 
 export const app = new Telegraf<BotContext>(config.bot.token);
 
@@ -68,6 +69,7 @@ app.catch((error, ctx) => {
 app.use(errorBoundary());
 app.use(session());
 app.use(metricsCollector());
+app.use(callbackRateLimit());
 app.use(antiFlood());
 app.use(autoDelete());
 app.use(auth());
