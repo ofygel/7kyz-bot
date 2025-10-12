@@ -86,9 +86,218 @@ const recordMigration = async (client: PoolClient, fileName: string): Promise<vo
   await client.query(RECORD_MIGRATION_SQL, [fileName]);
 };
 
+interface MigrationOptions {
+  useTransaction: boolean;
+}
+
+const DEFAULT_MIGRATION_OPTIONS: MigrationOptions = {
+  useTransaction: true,
+};
+
+const parseMigrationOptions = (sql: string): MigrationOptions => {
+  const options: MigrationOptions = { ...DEFAULT_MIGRATION_OPTIONS };
+  const lines = sql.split(/\r?\n/);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed === '') {
+      continue;
+    }
+
+    if (!trimmed.startsWith('--')) {
+      break;
+    }
+
+    const directiveMatch = trimmed.match(/^--\s*migrate:up\b(.*)$/i);
+    if (!directiveMatch) {
+      continue;
+    }
+
+    const directiveBody = directiveMatch[1]?.trim();
+    if (!directiveBody) {
+      continue;
+    }
+
+    const parts = directiveBody.split(/\s+/);
+    for (const part of parts) {
+      const [rawKey, rawValue] = part.split(':', 2);
+      if (!rawKey || typeof rawValue === 'undefined') {
+        continue;
+      }
+
+      const key = rawKey.trim().toLowerCase();
+      const value = rawValue.trim().toLowerCase();
+
+      if (key === 'transaction') {
+        options.useTransaction = value !== 'false';
+      }
+    }
+  }
+
+  return options;
+};
+
+const hasExecutableSql = (sql: string): boolean => {
+  const withoutLineComments = sql.replace(/--.*$/gm, '');
+  const withoutBlockComments = withoutLineComments.replace(/\/\*[\s\S]*?\*\//g, '');
+  return withoutBlockComments.trim().length > 0;
+};
+
+const splitSqlStatements = (sql: string): string[] => {
+  const statements: string[] = [];
+  let buffer = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let dollarTag: string | null = null;
+
+  for (let i = 0; i < sql.length; i += 1) {
+    const char = sql[i];
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      buffer += char;
+      if (char === '\n') {
+        inLineComment = false;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      buffer += char;
+      if (char === '*' && next === '/') {
+        buffer += next;
+        i += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (dollarTag) {
+      if (sql.startsWith(dollarTag, i)) {
+        buffer += dollarTag;
+        i += dollarTag.length - 1;
+        dollarTag = null;
+        continue;
+      }
+
+      buffer += char;
+      continue;
+    }
+
+    if (inSingleQuote) {
+      buffer += char;
+      if (char === "'" && next === "'") {
+        buffer += next;
+        i += 1;
+        continue;
+      }
+      if (char === "'") {
+        inSingleQuote = false;
+      }
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      buffer += char;
+      if (char === '"' && next === '"') {
+        buffer += next;
+        i += 1;
+        continue;
+      }
+      if (char === '"') {
+        inDoubleQuote = false;
+      }
+      continue;
+    }
+
+    if (char === '-' && next === '-') {
+      buffer += char + next;
+      i += 1;
+      inLineComment = true;
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      buffer += char + next;
+      i += 1;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (char === "'") {
+      buffer += char;
+      inSingleQuote = true;
+      continue;
+    }
+
+    if (char === '"') {
+      buffer += char;
+      inDoubleQuote = true;
+      continue;
+    }
+
+    if (char === '$') {
+      const match = sql.slice(i).match(/^\$[A-Za-z0-9_]*\$/);
+      if (match) {
+        dollarTag = match[0];
+        buffer += dollarTag;
+        i += dollarTag.length - 1;
+        continue;
+      }
+    }
+
+    if (char === ';') {
+      const statement = buffer.trim();
+      if (statement && hasExecutableSql(statement)) {
+        statements.push(statement);
+      }
+      buffer = '';
+      continue;
+    }
+
+    buffer += char;
+  }
+
+  const remaining = buffer.trim();
+  if (remaining && hasExecutableSql(remaining)) {
+    statements.push(remaining);
+  }
+
+  return statements;
+};
+
 const applyMigration = async (client: PoolClient, fileName: string): Promise<void> => {
   const sql = await loadMigrationSql(fileName);
-  await client.query(sql);
+  const options = parseMigrationOptions(sql);
+  const statements = splitSqlStatements(sql);
+
+  if (statements.length === 0) {
+    await recordMigration(client, fileName);
+    return;
+  }
+
+  if (options.useTransaction) {
+    await client.query('BEGIN');
+    try {
+      for (const statement of statements) {
+        await client.query(statement);
+      }
+      await recordMigration(client, fileName);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+    return;
+  }
+
+  for (const statement of statements) {
+    await client.query(statement);
+  }
+
   await recordMigration(client, fileName);
 };
 
