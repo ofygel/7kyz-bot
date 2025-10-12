@@ -51,6 +51,7 @@ interface OrderRow {
   distance_km: number | string;
   channel_message_id: string | number | null;
   created_at: Date | string;
+  updated_at: Date | string;
 }
 
 interface OrderWithExecutorRow extends OrderRow {
@@ -150,6 +151,7 @@ const mapOrderRow = (row: OrderRow): OrderRecord => {
     price: mapPrice(row.price_amount, row.price_currency, row.distance_km),
     channelMessageId: parseNumeric(row.channel_message_id),
     createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+    updatedAt: row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at),
   } satisfies OrderRecord;
 };
 
@@ -201,7 +203,7 @@ const updateExecutorHasActiveOrder = async (
         SELECT 1
         FROM orders
         WHERE claimed_by = $1
-          AND status = 'claimed'
+          AND status IN ('open', 'claimed')
       ) AS has_active_order
     `,
     [executorId],
@@ -256,7 +258,7 @@ export const createOrder = async (input: OrderInsertInput): Promise<OrderRecord>
       VALUES (
         DEFAULT,
         $1,
-        'open',
+        'new',
         $2,
         $3,
         $4,
@@ -360,6 +362,25 @@ export const setOrderChannelMessageId = async (
   );
 };
 
+export const markOrderAsOpen = async (
+  client: PoolClient,
+  id: number,
+): Promise<OrderRecord | null> => {
+  const { rows } = await client.query<OrderRow>(
+    `
+      UPDATE orders
+      SET status = 'open',
+          updated_at = now()
+      WHERE id = $1 AND status = 'new'
+      RETURNING *
+    `,
+    [id],
+  );
+
+  const [row] = rows;
+  return row ? mapOrderRow(row) : null;
+};
+
 export const tryClaimOrder = async (
   client: PoolClient,
   id: number,
@@ -371,7 +392,8 @@ export const tryClaimOrder = async (
       UPDATE orders
       SET status = 'claimed',
           claimed_by = $2,
-          claimed_at = now()
+          claimed_at = now(),
+          updated_at = now()
       WHERE id = $1 AND status = 'open' AND city = $3
       RETURNING *
     `,
@@ -399,7 +421,8 @@ export const tryReleaseOrder = async (
       SET status = 'open',
           claimed_by = NULL,
           claimed_at = NULL,
-          channel_message_id = NULL
+          channel_message_id = NULL,
+          updated_at = now()
       WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
       RETURNING *
     `,
@@ -427,7 +450,8 @@ export const tryReclaimOrder = async (
       SET status = 'claimed',
           claimed_by = $2,
           claimed_at = now(),
-          channel_message_id = NULL
+          channel_message_id = NULL,
+          updated_at = now()
       WHERE id = $1 AND status = 'open' AND claimed_by IS NULL
       RETURNING *
     `,
@@ -452,8 +476,9 @@ export const tryCompleteOrder = async (
   const { rows } = await client.query<OrderRow>(
     `
       UPDATE orders
-      SET status = 'done',
-          completed_at = now()
+      SET status = 'finished',
+          completed_at = now(),
+          updated_at = now()
       WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
       RETURNING *
     `,
@@ -479,8 +504,9 @@ export const tryRestoreCompletedOrder = async (
     `
       UPDATE orders
       SET status = 'claimed',
-          completed_at = NULL
-      WHERE id = $1 AND status = 'done' AND claimed_by = $2
+          completed_at = NULL,
+          updated_at = now()
+      WHERE id = $1 AND status = 'finished' AND claimed_by = $2
       RETURNING *
     `,
     [id, executorId],
@@ -501,7 +527,13 @@ export const tryCancelOrder = async (
   id: number,
 ): Promise<OrderRecord | null> => {
   const { rows } = await client.query<OrderRow>(
-    `UPDATE orders SET status = 'cancelled' WHERE id = $1 AND status = 'open' RETURNING *`,
+    `
+      UPDATE orders
+      SET status = 'cancelled',
+          updated_at = now()
+      WHERE id = $1 AND status = 'open'
+      RETURNING *
+    `,
     [id],
   );
 
@@ -516,7 +548,13 @@ export const tryCancelOrder = async (
 
 export const markOrderAsCancelled = async (orderId: number): Promise<OrderRecord | null> => {
   const { rows } = await pool.query<OrderRow>(
-    `UPDATE orders SET status = 'cancelled' WHERE id = $1 RETURNING *`,
+    `
+      UPDATE orders
+      SET status = 'cancelled',
+          updated_at = now()
+      WHERE id = $1
+      RETURNING *
+    `,
     [orderId],
   );
 
@@ -578,6 +616,122 @@ export const findActiveOrderForExecutor = async (
 
   const [row] = rows;
   return row ? mapOrderRow(row) : null;
+};
+
+export const listExecutorOrders = async (
+  executorId: number,
+  statuses: OrderStatus[] = ['open', 'claimed'],
+  limit = 20,
+): Promise<OrderRecord[]> => {
+  const statusFilter = statuses.length > 0 ? statuses : ['open', 'claimed'];
+  const params: unknown[] = [executorId, statusFilter];
+  if (limit && Number.isFinite(limit) && limit > 0) {
+    params.push(Math.trunc(limit));
+  }
+
+  const limitClause = params.length === 3 ? 'LIMIT $3::int' : '';
+
+  const { rows } = await pool.query<OrderRow>(
+    `
+      SELECT *
+      FROM orders
+      WHERE claimed_by = $1
+        AND status = ANY($2::order_status[])
+      ORDER BY updated_at DESC, id DESC
+      ${limitClause}
+    `,
+    params,
+  );
+
+  return rows.map(mapOrderRow);
+};
+
+export const completeOrderByExecutor = async (
+  orderId: number,
+  executorId: number,
+): Promise<OrderRecord | null> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const order = await tryCompleteOrder(client, orderId, executorId);
+
+    if (!order) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    await client.query('COMMIT');
+    return order;
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      logger.error({ err: rollbackError }, 'Failed to roll back executor order completion');
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+export interface ExpireOrdersOptions {
+  olderThanHours?: number;
+  statuses?: OrderStatus[];
+}
+
+export interface ExpireOrdersResult {
+  expired: number;
+  affectedExecutors: number[];
+}
+
+export const expireStaleOrders = async (
+  options: ExpireOrdersOptions = {},
+): Promise<ExpireOrdersResult> => {
+  const olderThanHours = Math.max(1, Math.floor(options.olderThanHours ?? 6));
+  const statuses = (options.statuses && options.statuses.length > 0
+    ? options.statuses
+    : ['open', 'claimed']) satisfies OrderStatus[];
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query<{ id: number; claimed_by: number | null }>(
+      `
+        UPDATE orders
+        SET status = 'expired',
+            updated_at = now()
+        WHERE status = ANY($1::order_status[])
+          AND updated_at <= now() - ($2::int * INTERVAL '1 hour')
+        RETURNING id, claimed_by
+      `,
+      [statuses, olderThanHours],
+    );
+
+    const affectedExecutors = new Set<number>();
+    for (const row of rows) {
+      if (typeof row.claimed_by === 'number') {
+        affectedExecutors.add(row.claimed_by);
+      }
+    }
+
+    for (const executorId of affectedExecutors) {
+      await updateExecutorHasActiveOrder(client, executorId);
+    }
+
+    await updateActiveOrdersGauge(client);
+    await client.query('COMMIT');
+
+    return { expired: rows.length, affectedExecutors: [...affectedExecutors] };
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackError) {
+      logger.error({ err: rollbackError }, 'Failed to roll back order expiration transaction');
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 export interface ListClientOrdersOptions {
@@ -666,7 +820,8 @@ export const cancelClientOrder = async (
   const { rows } = await pool.query<OrderWithExecutorRow>(
     `
       UPDATE orders o
-      SET status = 'cancelled'
+      SET status = 'cancelled',
+          updated_at = now()
       WHERE o.id = $1
         AND o.client_id = $2
         AND o.status IN ('open', 'claimed')

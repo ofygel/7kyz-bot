@@ -16,9 +16,16 @@ import {
   type SubscriptionIdentity,
 } from '../bot/services/reports';
 import { updateUserSubscriptionStatus } from '../db/users';
+import { expireStaleOrders } from '../db/orders';
+import { cleanupStaleFlowSteps } from '../infra/redisMaintenance';
 
 let task: ScheduledTask | null = null;
 let running = false;
+let lastFlowCleanupAt: number | null = null;
+
+const FLOW_STEP_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const FLOW_STEP_RETENTION_SECONDS = 7 * 24 * 60 * 60;
+const ORDER_EXPIRATION_HOURS = 6;
 
 const isPromiseLike = (value: unknown): value is PromiseLike<void> =>
   typeof value === 'object' && value !== null && typeof (value as { then?: unknown }).then === 'function';
@@ -292,6 +299,37 @@ const runMaintenance = async (telegram: Telegram): Promise<void> => {
   try {
     await processExpiringSubscriptions(telegram, startedAt);
     await processExpiredSubscriptions(telegram, startedAt);
+    try {
+      const { expired, affectedExecutors } = await expireStaleOrders({
+        olderThanHours: ORDER_EXPIRATION_HOURS,
+      });
+      if (expired > 0) {
+        logger.info(
+          {
+            expired,
+            affectedExecutors,
+          },
+          'Expired stale executor orders',
+        );
+      }
+    } catch (error) {
+      logger.error({ err: error }, 'Failed to expire stale orders');
+    }
+
+    const now = Date.now();
+    if (!lastFlowCleanupAt || now - lastFlowCleanupAt >= FLOW_STEP_CLEANUP_INTERVAL_MS) {
+      try {
+        const removed = await cleanupStaleFlowSteps({
+          olderThanSeconds: FLOW_STEP_RETENTION_SECONDS,
+        });
+        if (removed > 0) {
+          logger.info({ removed }, 'Removed stale flow step keys from Redis');
+        }
+      } catch (error) {
+        logger.error({ err: error }, 'Failed to cleanup flow step keys');
+      }
+      lastFlowCleanupAt = now;
+    }
   } catch (error) {
     logger.error({ err: error }, 'Subscription maintenance failed');
   }

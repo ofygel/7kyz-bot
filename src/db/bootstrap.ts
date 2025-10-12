@@ -7,6 +7,7 @@ import type { PoolClient } from './client';
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../db/migrations');
 const MIGRATION_EXTENSION = '.up.sql';
+const REQUIRED_SCHEMA_VERSION = '0100_baseline.up.sql';
 const CREATE_MIGRATIONS_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS schema_migrations (
     file_name TEXT PRIMARY KEY,
@@ -71,6 +72,25 @@ const ensureSchema = async (): Promise<void> => {
 
       logger.info({ migration: fileName }, 'Applying database migration');
       await applyMigration(client, fileName);
+    }
+
+    const { rows: versionRows } = await client.query<{ exists: boolean }>(CHECK_MIGRATION_SQL, [
+      REQUIRED_SCHEMA_VERSION,
+    ]);
+    if (!versionRows[0]?.exists) {
+      throw new Error(
+        `Database schema is outdated. Expected migration ${REQUIRED_SCHEMA_VERSION} to be applied.`,
+      );
+    }
+
+    const { rows: legacyRows } = await client.query<{ legacy: string }>(
+      `SELECT file_name AS legacy FROM schema_migrations WHERE file_name < $1 LIMIT 1`,
+      [REQUIRED_SCHEMA_VERSION],
+    );
+    if (legacyRows.length > 0) {
+      throw new Error(
+        `Database contains legacy migrations (${legacyRows[0]?.legacy}). Please rebuild using the baseline migration.`,
+      );
     }
 
     schemaReady = true;

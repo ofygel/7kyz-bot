@@ -16,10 +16,12 @@ export const ORDER_KIND_LABELS: Record<OrderWithExecutor['kind'], string> = {
 };
 
 const ORDER_STATUS_TEXT: Record<OrderStatus, { short: string; full: string }> = {
+  new: { short: 'обрабатывается', full: 'Обрабатывается оператором' },
   open: { short: 'ожидает исполнителя', full: 'Ожидает исполнителя' },
   claimed: { short: 'в работе', full: 'Выполняется исполнителем' },
   cancelled: { short: 'отменён', full: 'Заказ отменён' },
-  done: { short: 'завершён', full: 'Заказ выполнен' },
+  finished: { short: 'завершён', full: 'Заказ выполнен' },
+  expired: { short: 'истёк', full: 'Срок выполнения истёк' },
 };
 
 export const formatStatusLabel = (

@@ -12,6 +12,7 @@ import {
   deleteSessionCache,
   loadSessionCache,
   saveSessionCache,
+  refreshSessionCacheTtl,
 } from '../../infra/sessionCache';
 import { isAppCity } from '../../domain/cities';
 import {
@@ -908,6 +909,7 @@ export const session = (): MiddlewareFn<BotContext> => async (ctx, next) => {
   try {
     const stateToCache = fallbackMode ? prepareFallbackSession(finalState) : finalState;
     await saveSessionCache(key, stateToCache);
+    await refreshSessionCacheTtl(key);
   } catch (error) {
     logger.warn({ err: error, key }, 'Failed to persist session cache');
   }

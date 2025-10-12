@@ -2,7 +2,13 @@ import type { AppCity } from '../domain/cities';
 
 export type OrderKind = 'taxi' | 'delivery';
 
-export type OrderStatus = 'open' | 'claimed' | 'cancelled' | 'done';
+export type OrderStatus =
+  | 'new'
+  | 'open'
+  | 'claimed'
+  | 'cancelled'
+  | 'finished'
+  | 'expired';
 
 export interface OrderLocation {
   query: string;
@@ -51,6 +57,7 @@ export interface OrderRecord {
   price: OrderPriceDetails;
   channelMessageId?: number;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface OrderWithExecutor extends OrderRecord {

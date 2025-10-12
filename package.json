@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "db:migrate": "dbmate --migrations-dir=db/migrations --wait",
-    "ctr:report": "node dist/scripts/ctrReport.js"
+    "ctr:report": "node dist/scripts/ctrReport.js",
+    "lint:unused": "ts-prune --exit"
   },
   "dependencies": {
     "@sentry/node": "^7.120.0",
