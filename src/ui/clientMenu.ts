@@ -7,7 +7,7 @@ import { PROFILE_BUTTON_LABEL } from '../bot/flows/common/profileCard';
 import { CLIENT_ORDERS_ACTION } from '../bot/flows/client/orderActions';
 import { START_DELIVERY_ORDER_ACTION } from '../bot/flows/client/deliveryOrderFlow';
 import { START_TAXI_ORDER_ACTION } from '../bot/flows/client/taxiOrderFlow';
-import { buildInlineKeyboard } from '../bot/keyboards/common';
+import { buildInlineKeyboard, type KeyboardButton } from '../bot/keyboards/common';
 import { bindInlineKeyboardToUser } from '../bot/services/callbackTokens';
 
 export const CLIENT_MENU = {
@@ -16,6 +16,7 @@ export const CLIENT_MENU = {
   orders: '🧾 Мои заказы',
   profile: PROFILE_BUTTON_LABEL,
   support: '🆘 Поддержка',
+  webApp: 'Попробовать Веб-приложение',
   city: '🏙️ Сменить город',
   switchRole: '👥 Сменить роль',
   refresh: '🔄 Обновить меню',
@@ -30,9 +31,7 @@ export const CLIENT_MENU_CITY_SELECT_ACTION = 'client:menu:city';
 export const CLIENT_MENU_SWITCH_ROLE_ACTION = 'client:menu:switch-role';
 export const CLIENT_MENU_PROFILE_ACTION = 'client:menu:profile';
 
-type ClientMenuButton = { label: string; action: string };
-
-const CLIENT_MENU_ROWS: ClientMenuButton[][] = [
+const CLIENT_MENU_ROWS: KeyboardButton[][] = [
   [
     { label: CLIENT_MENU.taxi, action: START_TAXI_ORDER_ACTION },
     { label: CLIENT_MENU.delivery, action: START_DELIVERY_ORDER_ACTION },
@@ -45,6 +44,7 @@ const CLIENT_MENU_ROWS: ClientMenuButton[][] = [
     { label: CLIENT_MENU.support, action: CLIENT_MENU_SUPPORT_ACTION },
     { label: CLIENT_MENU.city, action: CLIENT_MENU_CITY_SELECT_ACTION },
   ],
+  [{ label: CLIENT_MENU.webApp, url: 'https://t.me/freedom_aic_bot/delivery' }],
   [{ label: CLIENT_MENU.switchRole, action: CLIENT_MENU_SWITCH_ROLE_ACTION }],
   [{ label: CLIENT_MENU.refresh, action: CLIENT_MENU_REFRESH_ACTION }],
 ];
@@ -181,6 +181,7 @@ export const clientMenuText = (): string =>
     '• 🧾 Мои заказы — проверка статуса и управление оформленными заказами.',
     '• 👤 Профиль — данные аккаунта, телефон и выбранный город.',
     '• 🆘 Поддержка — напишите нам, если нужна помощь.',
+    '• 🌐 Попробовать Веб-приложение — откройте веб-версию сервиса.',
     '• 🏙️ Сменить город — обновите географию заказов.',
     '• 👥 Сменить роль — переключитесь на режим исполнителя или клиента.',
   ].join('\n');
