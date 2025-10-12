@@ -16,6 +16,12 @@ const CREATE_MIGRATIONS_TABLE_SQL = `
 `;
 const CHECK_MIGRATION_SQL = 'SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE file_name = $1) AS exists';
 const RECORD_MIGRATION_SQL = 'INSERT INTO schema_migrations (file_name) VALUES ($1)';
+const FIND_LEGACY_MIGRATIONS_SQL = `
+  SELECT file_name AS legacy
+  FROM schema_migrations
+  WHERE file_name < $1
+  ORDER BY file_name
+`;
 
 const CHECK_BASELINE_SCHEMA_SQL = `
   SELECT
@@ -86,6 +92,26 @@ const applyMigration = async (client: PoolClient, fileName: string): Promise<voi
   await recordMigration(client, fileName);
 };
 
+const removeLegacyMigrationEntries = async (client: PoolClient): Promise<void> => {
+  const { rows } = await client.query<{ legacy: string }>(FIND_LEGACY_MIGRATIONS_SQL, [
+    REQUIRED_SCHEMA_VERSION,
+  ]);
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  const legacyMigrations = rows.map((row) => row.legacy);
+  logger.warn(
+    { legacyMigrations },
+    'Removing legacy migration entries prior to baseline migration.',
+  );
+
+  await client.query(`DELETE FROM schema_migrations WHERE file_name = ANY($1::text[])`, [
+    legacyMigrations,
+  ]);
+};
+
 const hasBaselineSchema = async (client: PoolClient): Promise<boolean> => {
   const { rows } = await client.query<{
     has_executor_kind: boolean;
@@ -104,6 +130,7 @@ const ensureSchema = async (): Promise<void> => {
 
   try {
     await client.query(CREATE_MIGRATIONS_TABLE_SQL);
+    await removeLegacyMigrationEntries(client);
     const migrations = await loadMigrationFiles();
 
     for (const fileName of migrations) {
@@ -136,20 +163,7 @@ const ensureSchema = async (): Promise<void> => {
       );
     }
 
-    const { rows: legacyRows } = await client.query<{ legacy: string }>(
-      `SELECT file_name AS legacy FROM schema_migrations WHERE file_name < $1 ORDER BY file_name`,
-      [REQUIRED_SCHEMA_VERSION],
-    );
-    if (legacyRows.length > 0) {
-      const legacyMigrations = legacyRows.map((row) => row.legacy);
-      logger.warn(
-        { legacyMigrations },
-        'Removing legacy migration entries prior to baseline migration.',
-      );
-      await client.query(`DELETE FROM schema_migrations WHERE file_name < $1`, [
-        REQUIRED_SCHEMA_VERSION,
-      ]);
-    }
+    await removeLegacyMigrationEntries(client);
 
     schemaReady = true;
   } finally {
