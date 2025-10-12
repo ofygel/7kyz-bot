@@ -137,13 +137,18 @@ const ensureSchema = async (): Promise<void> => {
     }
 
     const { rows: legacyRows } = await client.query<{ legacy: string }>(
-      `SELECT file_name AS legacy FROM schema_migrations WHERE file_name < $1 LIMIT 1`,
+      `SELECT file_name AS legacy FROM schema_migrations WHERE file_name < $1 ORDER BY file_name`,
       [REQUIRED_SCHEMA_VERSION],
     );
     if (legacyRows.length > 0) {
-      throw new Error(
-        `Database contains legacy migrations (${legacyRows[0]?.legacy}). Please rebuild using the baseline migration.`,
+      const legacyMigrations = legacyRows.map((row) => row.legacy);
+      logger.warn(
+        { legacyMigrations },
+        'Removing legacy migration entries prior to baseline migration.',
       );
+      await client.query(`DELETE FROM schema_migrations WHERE file_name < $1`, [
+        REQUIRED_SCHEMA_VERSION,
+      ]);
     }
 
     schemaReady = true;
