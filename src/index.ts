@@ -17,6 +17,7 @@ import { config, logger } from './config';
 import { healthHandler, readinessHandler } from './http/health';
 import { metricsHandler } from './http/metrics';
 import { openApiHandler } from './http/docs';
+import { registerSpaOrderRoutes } from './http/spaOrders';
 import { registerJobs, stopJobs } from './jobs';
 import { initSentry } from './infra/sentry';
 
@@ -147,7 +148,26 @@ const startServer = async (webhookPath: string, port: number): Promise<Server> =
   }
 
   serverApp.use(helmet());
-  serverApp.use(cors({ origin: false }));
+  const spaAllowedOrigins = new Set(config.spa.allowedOrigins);
+  serverApp.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin) {
+          callback(null, true);
+          return;
+        }
+
+        if (spaAllowedOrigins.size === 0 || spaAllowedOrigins.has(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        logger.warn({ origin }, 'Blocked CORS origin for SPA request');
+        callback(new Error('Not allowed by CORS'));
+      },
+      credentials: true,
+    }),
+  );
   serverApp.use(express.json({ limit: '1mb' }));
   serverApp.use(
     rateLimit({
@@ -169,6 +189,7 @@ const startServer = async (webhookPath: string, port: number): Promise<Server> =
   serverApp.get('/readyz', asyncHandler(readinessHandler));
   serverApp.get('/metrics', asyncHandler(metricsHandler));
   serverApp.get('/openapi.json', openApiHandler);
+  registerSpaOrderRoutes(serverApp);
 
   if (sentryHandlers) {
     serverApp.use(sentryHandlers.errorHandler);
