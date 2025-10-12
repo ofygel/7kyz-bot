@@ -3,6 +3,7 @@ import { pool } from './client';
 import { logger } from '../config';
 import { activeOrdersGauge } from '../metrics/business';
 import { updateUserSubscriptionStatus } from './users';
+import { emitOrderEvent, emitStatusEvent } from '../services/orderEvents';
 
 import type {
   OrderInsertInput,
@@ -175,6 +176,14 @@ const mapOrderWithExecutorRow = (row: OrderWithExecutorRow): OrderWithExecutor =
   } satisfies OrderWithExecutor;
 };
 
+const notifyOrderCreated = (order: OrderRecord): void => {
+  emitOrderEvent({ type: 'created', order });
+};
+
+const notifyOrderUpdated = (order: OrderRecord): void => {
+  emitStatusEvent(order);
+};
+
 const updateActiveOrdersGauge = async (queryable: Pick<PoolClient, 'query'>): Promise<void> => {
   try {
     const { rows } = await queryable.query<{ count: number }>(
@@ -325,7 +334,9 @@ export const createOrder = async (input: OrderInsertInput): Promise<OrderRecord>
 
   await updateActiveOrdersGauge(pool);
 
-  return mapOrderRow(row);
+  const order = mapOrderRow(row);
+  notifyOrderCreated(order);
+  return order;
 };
 
 export const getOrderById = async (id: number): Promise<OrderRecord | null> => {
@@ -335,7 +346,13 @@ export const getOrderById = async (id: number): Promise<OrderRecord | null> => {
   );
 
   const [row] = rows;
-  return row ? mapOrderRow(row) : null;
+  if (!row) {
+    return null;
+  }
+
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const lockOrderById = async (
@@ -350,18 +367,33 @@ export const lockOrderById = async (
   );
 
   const [row] = rows;
-  return row ? mapOrderRow(row) : null;
+  if (!row) {
+    return null;
+  }
+
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const setOrderChannelMessageId = async (
   client: PoolClient,
   id: number,
   messageId: number,
-): Promise<void> => {
-  await client.query(
-    `UPDATE orders SET channel_message_id = $2 WHERE id = $1`,
+): Promise<OrderRecord | null> => {
+  const { rows } = await client.query<OrderRow>(
+    `UPDATE orders SET channel_message_id = $2, updated_at = now() WHERE id = $1 RETURNING *`,
     [id, messageId],
   );
+
+  const [row] = rows;
+  if (!row) {
+    return null;
+  }
+
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const markOrderAsOpen = async (
@@ -380,7 +412,13 @@ export const markOrderAsOpen = async (
   );
 
   const [row] = rows;
-  return row ? mapOrderRow(row) : null;
+  if (!row) {
+    return null;
+  }
+
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const tryClaimOrder = async (
@@ -409,7 +447,9 @@ export const tryClaimOrder = async (
 
   await updateExecutorHasActiveOrder(client, claimedBy);
   await updateActiveOrdersGauge(client);
-  return mapOrderRow(row);
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const tryReleaseOrder = async (
@@ -438,7 +478,9 @@ export const tryReleaseOrder = async (
 
   await updateExecutorHasActiveOrder(client, claimedBy);
   await updateActiveOrdersGauge(client);
-  return mapOrderRow(row);
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const tryReclaimOrder = async (
@@ -467,7 +509,9 @@ export const tryReclaimOrder = async (
 
   await updateExecutorHasActiveOrder(client, executorId);
   await updateActiveOrdersGauge(client);
-  return mapOrderRow(row);
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const tryCompleteOrder = async (
@@ -494,7 +538,9 @@ export const tryCompleteOrder = async (
 
   await updateExecutorHasActiveOrder(client, claimedBy);
   await updateActiveOrdersGauge(client);
-  return mapOrderRow(row);
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 const tryMarkOrderInProgress = async (
@@ -549,7 +595,9 @@ export const tryRestoreCompletedOrder = async (
 
   await updateExecutorHasActiveOrder(client, executorId);
   await updateActiveOrdersGauge(client);
-  return mapOrderRow(row);
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const tryCancelOrder = async (
@@ -573,7 +621,9 @@ export const tryCancelOrder = async (
   }
 
   await updateActiveOrdersGauge(client);
-  return mapOrderRow(row);
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const markOrderAsCancelled = async (orderId: number): Promise<OrderRecord | null> => {
@@ -594,7 +644,9 @@ export const markOrderAsCancelled = async (orderId: number): Promise<OrderRecord
   }
 
   await updateActiveOrdersGauge(pool);
-  return mapOrderRow(row);
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export interface ListOpenOrdersOptions {
@@ -748,12 +800,14 @@ export const expireStaleOrders = async (
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query<{ id: number; claimed_by: number | null }>(
+    const { rows } = await client.query<OrderRow>(
       `
         UPDATE orders
         SET status = 'expired',
             updated_at = now()
         WHERE status = ANY($1::order_status[])
+          AND updated_at <= now() - ($2::int * INTERVAL '1 hour')
+        RETURNING *
           AND (
             (
               status = 'in_progress'
@@ -771,9 +825,13 @@ export const expireStaleOrders = async (
     );
 
     const affectedExecutors = new Set<number>();
+    const expiredOrders: OrderRecord[] = [];
     for (const row of rows) {
+      const order = mapOrderRow(row);
+      expiredOrders.push(order);
+
       if (typeof row.claimed_by === 'number') {
-        affectedExecutors.add(row.claimed_by);
+        affectedExecutors.add(Number(row.claimed_by));
       }
     }
 
@@ -783,6 +841,10 @@ export const expireStaleOrders = async (
 
     await updateActiveOrdersGauge(client);
     await client.query('COMMIT');
+
+    for (const order of expiredOrders) {
+      notifyOrderUpdated(order);
+    }
 
     return { expired: rows.length, affectedExecutors: [...affectedExecutors] };
   } catch (error) {
@@ -873,7 +935,13 @@ export const getOrderWithExecutorById = async (id: number): Promise<OrderWithExe
   );
 
   const [row] = rows;
-  return row ? mapOrderWithExecutorRow(row) : null;
+  if (!row) {
+    return null;
+  }
+
+  const order = mapOrderWithExecutorRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export const cancelClientOrder = async (
@@ -900,6 +968,12 @@ export const cancelClientOrder = async (
   );
 
   const [row] = rows;
-  return row ? mapOrderWithExecutorRow(row) : null;
+  if (!row) {
+    return null;
+  }
+
+  const order = mapOrderWithExecutorRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 

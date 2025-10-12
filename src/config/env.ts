@@ -314,6 +314,18 @@ const parsePositiveInt = (envKey: string, defaultValue: number): number => {
   return parsed;
 };
 
+const parseStringList = (envKey: string): string[] => {
+  const raw = getOptionalString(envKey);
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(/[\n,]/)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+};
+
 const getRequiredString = (key: RequiredEnvVar): string => {
   const value = getTrimmedEnv(key);
   if (!value) {
@@ -484,6 +496,11 @@ export interface AppConfig {
     };
   };
   pricing: PricingConfig;
+  spa: {
+    apiKeys: readonly string[];
+    allowedOrigins: readonly string[];
+    streamHeartbeatMs: number;
+  };
 }
 
 export const loadConfig = (): AppConfig => {
@@ -500,6 +517,9 @@ export const loadConfig = (): AppConfig => {
   const sessionCachePrefix = getOptionalString('SESSION_CACHE_PREFIX') ?? 'session:';
   const planDurations = parsePlanDurations();
   const ordersChannelId = parseOptionalChatId('ORDERS_CHANNEL_ID');
+  const spaApiKeys = parseStringList('SPA_API_KEYS');
+  const spaAllowedOrigins = parseStringList('SPA_ALLOWED_ORIGINS');
+  const spaStreamHeartbeatMs = parsePositiveInt('SPA_STREAM_HEARTBEAT_MS', 15000);
 
   const supportUsernameRaw = getRequiredString('SUPPORT_USERNAME');
   const supportUsername = supportUsernameRaw.startsWith('@')
@@ -595,6 +615,11 @@ export const loadConfig = (): AppConfig => {
       },
     },
     pricing: loadPricingConfig(),
+    spa: {
+      apiKeys: spaApiKeys,
+      allowedOrigins: spaAllowedOrigins,
+      streamHeartbeatMs: spaStreamHeartbeatMs,
+    },
   };
 };
 
@@ -624,6 +649,9 @@ Object.freeze(config.subscriptions);
 Object.freeze(config.pricing.taxi);
 Object.freeze(config.pricing.delivery);
 Object.freeze(config.pricing);
+Object.freeze(config.spa.apiKeys);
+Object.freeze(config.spa.allowedOrigins);
+Object.freeze(config.spa);
 Object.freeze(config);
 
 export type { RequiredEnvVar };
