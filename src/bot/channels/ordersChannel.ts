@@ -7,6 +7,7 @@ import { withTx } from '../../db/client';
 import { formatEtaMinutes } from '../services/pricing';
 import { CITY_LABEL } from '../../domain/cities';
 import {
+  getOrderById,
   lockOrderById,
   setOrderChannelMessageId,
   getOrderWithExecutorById,
@@ -498,7 +499,7 @@ const formatUserInfo = (info?: UserInfo): string => {
 };
 
 const mapOrderStatus = (order: OrderRecord): OrderChannelStatus => {
-  if (order.status === 'claimed' || order.status === 'finished') {
+  if (order.status === 'claimed' || order.status === 'in_progress' || order.status === 'finished') {
     return 'claimed';
   }
 
@@ -789,9 +790,14 @@ const processOrderAction = async (
 
   const result = await withTx(
     async (client) => {
-      const order = await lockOrderById(client, orderId);
+      const order = await lockOrderById(client, orderId, { skipLocked: true });
       if (!order) {
-        return { outcome: 'not_found' } as const;
+        const latest = await getOrderById(orderId);
+        if (!latest) {
+          return { outcome: 'not_found' } as const;
+        }
+
+        return { outcome: 'already_processed', order: latest } as const;
       }
 
       if (decision === 'accept') {
@@ -821,7 +827,8 @@ const processOrderAction = async (
             `
               SELECT id
               FROM orders
-              WHERE claimed_by = $1 AND status = 'claimed'
+              WHERE claimed_by = $1
+                AND status = ANY('{claimed,in_progress}'::order_status[])
               LIMIT 1
             `,
             [actorId!],
@@ -875,12 +882,20 @@ const processOrderRelease = async (
 ): Promise<OrderReleaseOutcome> => {
   const result = await withTx(
     async (client) => {
-      const order = await lockOrderById(client, orderId);
+      const order = await lockOrderById(client, orderId, { skipLocked: true });
       if (!order) {
-        return { outcome: 'not_found' } as const;
+        const latest = await getOrderById(orderId);
+        if (!latest) {
+          return { outcome: 'not_found' } as const;
+        }
+
+        return { outcome: 'not_claimed', order: latest } as const;
       }
 
-      if (order.status !== 'claimed' || typeof order.claimedBy !== 'number') {
+      if (
+        (order.status !== 'claimed' && order.status !== 'in_progress') ||
+        typeof order.claimedBy !== 'number'
+      ) {
         return { outcome: 'not_claimed', order } as const;
       }
 
@@ -907,12 +922,20 @@ const processOrderCompletion = async (
 ): Promise<OrderCompletionOutcome> => {
   const result = await withTx(
     async (client) => {
-      const order = await lockOrderById(client, orderId);
+      const order = await lockOrderById(client, orderId, { skipLocked: true });
       if (!order) {
-        return { outcome: 'not_found' } as const;
+        const latest = await getOrderById(orderId);
+        if (!latest) {
+          return { outcome: 'not_found' } as const;
+        }
+
+        return { outcome: 'not_claimed', order: latest } as const;
       }
 
-      if (order.status !== 'claimed' || typeof order.claimedBy !== 'number') {
+      if (
+        (order.status !== 'claimed' && order.status !== 'in_progress') ||
+        typeof order.claimedBy !== 'number'
+      ) {
         return { outcome: 'not_claimed', order } as const;
       }
 
