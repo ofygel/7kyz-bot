@@ -187,7 +187,7 @@ const notifyOrderUpdated = (order: OrderRecord): void => {
 const updateActiveOrdersGauge = async (queryable: Pick<PoolClient, 'query'>): Promise<void> => {
   try {
     const { rows } = await queryable.query<{ count: number }>(
-      "SELECT COUNT(*)::int AS count FROM orders WHERE status IN ('open', 'claimed', 'in_progress')",
+      "SELECT COUNT(*)::int AS count FROM orders WHERE status IN ('open', 'claimed')",
     );
     const [row] = rows;
     if (row && typeof row.count === 'number') {
@@ -561,7 +561,13 @@ const tryMarkOrderInProgress = async (
   );
 
   const [row] = rows;
-  return row ? mapOrderRow(row) : null;
+  if (!row) {
+    return null;
+  }
+
+  const order = mapOrderRow(row);
+  notifyOrderUpdated(order);
+  return order;
 };
 
 export type ExecutorCompletionTransition = 'started' | 'finished';
@@ -795,7 +801,7 @@ export const expireStaleOrders = async (
   const olderThanHours = Math.max(1, Math.floor(options.olderThanHours ?? 6));
   const statuses = (options.statuses && options.statuses.length > 0
     ? options.statuses
-    : ['open', 'claimed', 'in_progress']) satisfies OrderStatus[];
+    : ['open', 'claimed']) satisfies OrderStatus[];
 
   const client = await pool.connect();
   try {
@@ -808,18 +814,6 @@ export const expireStaleOrders = async (
         WHERE status = ANY($1::order_status[])
           AND updated_at <= now() - ($2::int * INTERVAL '1 hour')
         RETURNING *
-          AND (
-            (
-              status = 'in_progress'
-              AND claimed_at IS NOT NULL
-              AND claimed_at <= now() - ($2::int * INTERVAL '1 hour')
-            )
-            OR (
-              status <> 'in_progress'
-              AND COALESCE(claimed_at, updated_at) <= now() - ($2::int * INTERVAL '1 hour')
-            )
-          )
-      RETURNING id, claimed_by
       `,
       [statuses, olderThanHours],
     );
