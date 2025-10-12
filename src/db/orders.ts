@@ -187,7 +187,7 @@ const notifyOrderUpdated = (order: OrderRecord): void => {
 const updateActiveOrdersGauge = async (queryable: Pick<PoolClient, 'query'>): Promise<void> => {
   try {
     const { rows } = await queryable.query<{ count: number }>(
-      "SELECT COUNT(*)::int AS count FROM orders WHERE status IN ('open', 'claimed')",
+      "SELECT COUNT(*)::int AS count FROM orders WHERE status IN ('open', 'claimed', 'in_progress')",
     );
     const [row] = rows;
     if (row && typeof row.count === 'number') {
@@ -212,7 +212,7 @@ const updateExecutorHasActiveOrder = async (
         SELECT 1
         FROM orders
         WHERE claimed_by = $1
-          AND status IN ('open', 'claimed')
+          AND status IN ('open', 'claimed', 'in_progress')
       ) AS has_active_order
     `,
     [executorId],
@@ -543,6 +543,34 @@ export const tryCompleteOrder = async (
   return order;
 };
 
+const tryMarkOrderInProgress = async (
+  client: PoolClient,
+  id: number,
+  claimedBy: number,
+): Promise<OrderRecord | null> => {
+  const { rows } = await client.query<OrderRow>(
+    `
+      UPDATE orders
+      SET status = 'in_progress',
+          completed_at = NULL,
+          updated_at = now()
+      WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
+      RETURNING *
+    `,
+    [id, claimedBy],
+  );
+
+  const [row] = rows;
+  return row ? mapOrderRow(row) : null;
+};
+
+export type ExecutorCompletionTransition = 'started' | 'finished';
+
+export interface ExecutorCompletionResult {
+  order: OrderRecord;
+  transition: ExecutorCompletionTransition;
+}
+
 export const tryRestoreCompletedOrder = async (
   client: PoolClient,
   id: number,
@@ -662,7 +690,7 @@ export const findActiveOrderForExecutor = async (
       FROM orders
       WHERE claimed_by = $1
         AND status = ANY('{claimed,in_progress}'::order_status[])
-      ORDER BY claimed_at DESC NULLS LAST, id DESC
+      ORDER BY updated_at DESC, claimed_at DESC NULLS LAST, id DESC
       LIMIT 1
     `,
     [executorId],
@@ -703,19 +731,42 @@ export const listExecutorOrders = async (
 export const completeOrderByExecutor = async (
   orderId: number,
   executorId: number,
-): Promise<OrderRecord | null> => {
+): Promise<ExecutorCompletionResult | null> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const order = await tryCompleteOrder(client, orderId, executorId);
+    const current = await lockOrderById(client, orderId);
 
-    if (!order) {
+    if (
+      !current ||
+      current.claimedBy !== executorId ||
+      (current.status !== 'claimed' && current.status !== 'in_progress')
+    ) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    let updated: OrderRecord | null = null;
+    let transition: ExecutorCompletionTransition = 'started';
+
+    if (current.status === 'claimed') {
+      updated = await tryMarkOrderInProgress(client, orderId, executorId);
+      if (updated) {
+        await updateExecutorHasActiveOrder(client, executorId);
+        await updateActiveOrdersGauge(client);
+      }
+    } else {
+      transition = 'finished';
+      updated = await tryCompleteOrder(client, orderId, executorId);
+    }
+
+    if (!updated) {
       await client.query('ROLLBACK');
       return null;
     }
 
     await client.query('COMMIT');
-    return order;
+    return { order: updated, transition };
   } catch (error) {
     try {
       await client.query('ROLLBACK');
@@ -744,7 +795,7 @@ export const expireStaleOrders = async (
   const olderThanHours = Math.max(1, Math.floor(options.olderThanHours ?? 6));
   const statuses = (options.statuses && options.statuses.length > 0
     ? options.statuses
-    : ['open', 'claimed']) satisfies OrderStatus[];
+    : ['open', 'claimed', 'in_progress']) satisfies OrderStatus[];
 
   const client = await pool.connect();
   try {
@@ -757,6 +808,18 @@ export const expireStaleOrders = async (
         WHERE status = ANY($1::order_status[])
           AND updated_at <= now() - ($2::int * INTERVAL '1 hour')
         RETURNING *
+          AND (
+            (
+              status = 'in_progress'
+              AND claimed_at IS NOT NULL
+              AND claimed_at <= now() - ($2::int * INTERVAL '1 hour')
+            )
+            OR (
+              status <> 'in_progress'
+              AND COALESCE(claimed_at, updated_at) <= now() - ($2::int * INTERVAL '1 hour')
+            )
+          )
+      RETURNING id, claimed_by
       `,
       [statuses, olderThanHours],
     );
