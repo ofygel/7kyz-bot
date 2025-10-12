@@ -20,6 +20,7 @@ import {
 import { CITY_LABEL } from '../../../domain/cities';
 import { ORDER_KIND_ICONS, formatStatusLabel } from '../../orders/formatting';
 import { buildInlineKeyboard } from '../../keyboards/common';
+import { buildOrderLocationsKeyboard } from '../../keyboards/orders';
 import { formatDistance, formatEtaMinutes, formatPriceAmount } from '../../services/pricing';
 
 const ORDERS_INFO_STEP_ID = 'executor:orders:info';
@@ -30,12 +31,17 @@ export const EXECUTOR_SUBSCRIPTION_REQUIRED_MESSAGE =
   `Подписка на канал заказов оформляется через поддержку. Напишите ${SUPPORT_MENTION}, чтобы получить инструкции и ссылку.`;
 
 const ACTIVE_ORDERS_STEP_ID = 'executor:orders:active';
-const ORDER_DETAIL_STEP_ID = 'executor:orders:detail';
 export const EXECUTOR_ACTIVE_ORDERS_ACTION = 'executor:orders:active';
 const EXECUTOR_ORDER_VIEW_ACTION_PREFIX = 'executor:orders:view';
 const EXECUTOR_ORDER_VIEW_ACTION_PATTERN = /^executor:orders:view:(\d+)$/;
 const EXECUTOR_ORDER_FINISH_ACTION_PREFIX = 'executor:orders:finish';
 const EXECUTOR_ORDER_FINISH_ACTION_PATTERN = /^executor:orders:finish:(\d+)$/;
+const EXECUTOR_ORDER_CONTACT_ACTION_PREFIX = 'executor:orders:contact';
+const EXECUTOR_ORDER_CONTACT_ACTION_PATTERN = /^executor:orders:contact:(\d+)$/;
+const EXECUTOR_ORDER_ADDRESSES_ACTION_PREFIX = 'executor:orders:addresses';
+const EXECUTOR_ORDER_ADDRESSES_ACTION_PATTERN = /^executor:orders:addresses:(\d+)$/;
+
+const getExecutorOrderStepId = (orderId: number): string => `executor:order:${orderId}`;
 
 type OrdersFailureScope = 'list' | 'detail' | 'complete';
 
@@ -131,7 +137,7 @@ const buildExecutorOrderDetailText = (order: OrderWithExecutor): string => {
     lines.push('', `📝 Комментарий клиента: ${order.clientComment.trim()}`);
   }
 
-  if (order.status === 'claimed') {
+  if (order.status === 'claimed' || order.status === 'in_progress') {
     lines.push('', 'Завершите заказ после выполнения, чтобы освободить очередь.');
   }
 
@@ -150,7 +156,26 @@ const buildExecutorOrderDetailKeyboard = (
 ) => {
   const rows: { label: string; action: string }[][] = [];
 
-  if (order.status === 'claimed' && order.claimedBy === executorId) {
+  rows.push([
+    {
+      label: '📞 Контакт клиента',
+      action: `${EXECUTOR_ORDER_CONTACT_ACTION_PREFIX}:${order.id}`,
+    },
+  ]);
+
+  if (order.kind === 'delivery') {
+    rows.push([
+      {
+        label: '🗺️ Адреса',
+        action: `${EXECUTOR_ORDER_ADDRESSES_ACTION_PREFIX}:${order.id}`,
+      },
+    ]);
+  }
+
+  const canComplete =
+    order.claimedBy === executorId && (order.status === 'claimed' || order.status === 'in_progress');
+
+  if (canComplete) {
     rows.push([
       {
         label: '🛑 Завершить заказ',
@@ -184,7 +209,7 @@ const buildOrdersInfoText = (ctx: BotContext): string => {
 
 const renderActiveOrdersList = async (ctx: BotContext): Promise<void> => {
   try {
-    const orders = await listExecutorOrders(ctx.auth.user.telegramId, ['open', 'claimed']);
+    const orders = await listExecutorOrders(ctx.auth.user.telegramId, ['claimed', 'in_progress']);
     const text = buildActiveOrdersListText(orders);
     const keyboard = orders.length > 0 ? buildActiveOrdersListKeyboard(orders) : buildEmptyOrdersKeyboard();
 
@@ -206,15 +231,22 @@ const renderExecutorOrderDetail = async (
 ): Promise<void> => {
   const executorId = ctx.auth.user.telegramId;
   if (order.claimedBy !== executorId) {
-    await ctx.answerCbQuery('Заказ больше не относится к вашему профилю.', { show_alert: true });
+    logger.warn({ orderId: order.id, executorId, claimedBy: order.claimedBy }, 'Skip rendering order not assigned to executor');
     return;
+  }
+
+  const stepId = getExecutorOrderStepId(order.id);
+  try {
+    await ui.clear(ctx, { ids: stepId, cleanupOnly: false });
+  } catch (error) {
+    logger.debug({ err: error, orderId: order.id, stepId }, 'Failed to clear executor order step before render');
   }
 
   const text = buildExecutorOrderDetailText(order);
   const keyboard = buildExecutorOrderDetailKeyboard(order, executorId);
 
   await ui.step(ctx, {
-    id: ORDER_DETAIL_STEP_ID,
+    id: stepId,
     text,
     keyboard,
     homeAction: EXECUTOR_MENU_ACTION,
@@ -230,6 +262,12 @@ const showExecutorOrderDetail = async (ctx: BotContext, orderId: number): Promis
       return;
     }
 
+    if (order.claimedBy !== ctx.auth.user.telegramId) {
+      await ctx.answerCbQuery('Заказ больше не относится к вашему профилю.', { show_alert: true });
+      return;
+    }
+
+    await ctx.answerCbQuery();
     await renderExecutorOrderDetail(ctx, order);
   } catch (error) {
     await handleOrdersFailure(ctx, 'detail', error);
@@ -237,23 +275,118 @@ const showExecutorOrderDetail = async (ctx: BotContext, orderId: number): Promis
 };
 
 const completeExecutorOrder = async (ctx: BotContext, orderId: number): Promise<void> => {
+  const executorId = ctx.auth.user.telegramId;
+  let snapshot: OrderWithExecutor | null = null;
+
   try {
-    const result = await completeOrderByExecutor(orderId, ctx.auth.user.telegramId);
+    try {
+      snapshot = await getOrderWithExecutorById(orderId);
+    } catch (loadError) {
+      logger.warn(
+        { err: loadError, orderId, executorId },
+        'Failed to load order snapshot before executor completion',
+      );
+    }
+
+    if (snapshot && snapshot.claimedBy !== executorId) {
+      await ctx.answerCbQuery('Заказ больше не относится к вашему профилю.', { show_alert: true });
+      logger.warn({ orderId, executorId, claimedBy: snapshot.claimedBy }, 'Executor tried to finish foreign order');
+      return;
+    }
+
+    const result = await completeOrderByExecutor(orderId, executorId);
     if (!result) {
-      await ctx.answerCbQuery('Не удалось завершить заказ. Проверьте статус и попробуйте снова.', {
-        show_alert: true,
-      });
+      logger.warn(
+        { orderId, executorId, prevStatus: snapshot?.status },
+        'Executor order completion returned no result',
+      );
+
+      if (snapshot?.status === 'finished') {
+        await ctx.answerCbQuery('Заказ уже завершён.', { show_alert: true });
+      } else {
+        await ctx.answerCbQuery('Не удалось завершить заказ. Проверьте статус и попробуйте снова.', {
+          show_alert: true,
+        });
+      }
       return;
     }
 
     await ctx.answerCbQuery('Заказ отмечен завершённым.');
-    const updated = await getOrderWithExecutorById(orderId);
-    if (updated) {
-      await renderExecutorOrderDetail(ctx, updated);
+    logger.info({ orderId, executorId, prevStatus: snapshot?.status ?? 'unknown' }, 'Executor completed order');
+
+    if (result.clientId) {
+      ctx.telegram
+        .sendMessage(
+          result.clientId,
+          `Ваш заказ #${result.shortId} завершён исполнителем. Если это ошибка — ответьте «/dispute ${result.id}».`,
+        )
+        .catch((notifyError) => {
+          logger.warn(
+            { err: notifyError, orderId, executorId },
+            'Failed to notify client about executor order completion',
+          );
+        });
     }
+
+    try {
+      await ui.clear(ctx, { ids: getExecutorOrderStepId(orderId), cleanupOnly: false });
+    } catch (clearError) {
+      logger.debug(
+        { err: clearError, orderId, executorId },
+        'Failed to clear executor order step after completion',
+      );
+    }
+
+    await renderActiveOrdersList(ctx);
   } catch (error) {
     await handleOrdersFailure(ctx, 'complete', error);
   }
+};
+
+const sendExecutorOrderContactInfo = async (
+  ctx: BotContext,
+  order: OrderWithExecutor,
+): Promise<void> => {
+  const lines: string[] = [`📞 Контакт клиента для заказа №${order.shortId}`, ''];
+
+  if (order.customerName?.trim()) {
+    lines.push(`Имя: ${order.customerName.trim()}`);
+  }
+
+  if (order.customerUsername?.trim()) {
+    const username = order.customerUsername.trim();
+    lines.push(`Telegram: @${username.replace(/^@/, '')}`);
+  }
+
+  if (order.clientPhone?.trim()) {
+    lines.push(`Телефон клиента: ${order.clientPhone.trim()}`);
+  }
+
+  if (order.recipientPhone?.trim() && order.recipientPhone !== order.clientPhone) {
+    lines.push(`Телефон получателя: ${order.recipientPhone.trim()}`);
+  }
+
+  if (lines.length === 2) {
+    lines.push('Контактные данные недоступны. Обратитесь в поддержку, если нужна помощь.');
+  }
+
+  await ctx.reply(lines.join('\n'));
+};
+
+const sendExecutorOrderAddresses = async (
+  ctx: BotContext,
+  order: OrderWithExecutor,
+): Promise<void> => {
+  const lines = [
+    `🗺️ Адреса заказа №${order.shortId}`,
+    '',
+    `A: ${order.pickup.address}`,
+    `B: ${order.dropoff.address}`,
+  ];
+
+  await ctx.reply(lines.join('\n'), {
+    reply_markup: buildOrderLocationsKeyboard(order.city, order.pickup, order.dropoff),
+  });
 };
 
 const buildOrdersKeyboard = () =>
@@ -311,8 +444,71 @@ export const registerExecutorOrders = (bot: Telegraf<BotContext>): void => {
       return;
     }
 
-    await ctx.answerCbQuery();
     await showExecutorOrderDetail(ctx, orderId);
+  });
+
+  bot.action(EXECUTOR_ORDER_CONTACT_ACTION_PATTERN, async (ctx) => {
+    const match = ctx.match as RegExpExecArray | null;
+    const orderId = parseOrderId(match?.[1]);
+    if (!orderId) {
+      await ctx.answerCbQuery('Заказ не найден.', { show_alert: true });
+      return;
+    }
+
+    if (ctx.chat?.type !== 'private') {
+      await ctx.answerCbQuery();
+      return;
+    }
+
+    try {
+      const order = await getOrderWithExecutorById(orderId);
+      if (!order) {
+        await ctx.answerCbQuery('Заказ не найден.', { show_alert: true });
+        return;
+      }
+
+      if (order.claimedBy !== ctx.auth.user.telegramId) {
+        await ctx.answerCbQuery('Заказ больше не относится к вашему профилю.', { show_alert: true });
+        return;
+      }
+
+      await ctx.answerCbQuery();
+      await sendExecutorOrderContactInfo(ctx, order);
+    } catch (error) {
+      await handleOrdersFailure(ctx, 'detail', error);
+    }
+  });
+
+  bot.action(EXECUTOR_ORDER_ADDRESSES_ACTION_PATTERN, async (ctx) => {
+    const match = ctx.match as RegExpExecArray | null;
+    const orderId = parseOrderId(match?.[1]);
+    if (!orderId) {
+      await ctx.answerCbQuery('Заказ не найден.', { show_alert: true });
+      return;
+    }
+
+    if (ctx.chat?.type !== 'private') {
+      await ctx.answerCbQuery();
+      return;
+    }
+
+    try {
+      const order = await getOrderWithExecutorById(orderId);
+      if (!order) {
+        await ctx.answerCbQuery('Заказ не найден.', { show_alert: true });
+        return;
+      }
+
+      if (order.claimedBy !== ctx.auth.user.telegramId) {
+        await ctx.answerCbQuery('Заказ больше не относится к вашему профилю.', { show_alert: true });
+        return;
+      }
+
+      await ctx.answerCbQuery();
+      await sendExecutorOrderAddresses(ctx, order);
+    } catch (error) {
+      await handleOrdersFailure(ctx, 'detail', error);
+    }
   });
 
   bot.action(EXECUTOR_ORDER_FINISH_ACTION_PATTERN, async (ctx) => {

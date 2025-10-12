@@ -19,6 +19,7 @@ const ORDER_STATUS_TEXT: Record<OrderStatus, { short: string; full: string }> = 
   new: { short: 'обрабатывается', full: 'Обрабатывается оператором' },
   open: { short: 'ожидает исполнителя', full: 'Ожидает исполнителя' },
   claimed: { short: 'в работе', full: 'Выполняется исполнителем' },
+  in_progress: { short: 'в работе', full: 'Исполнитель подтвердил начало выполнения' },
   cancelled: { short: 'отменён', full: 'Заказ отменён' },
   finished: { short: 'завершён', full: 'Заказ выполнен' },
   expired: { short: 'истёк', full: 'Срок выполнения истёк' },
@@ -60,7 +61,7 @@ const normalisePhoneNumber = (phone: string): string => phone.replace(/[\s()-]/g
 export const buildOrderContactKeyboard = (
   order: OrderWithExecutor,
 ): InlineKeyboardMarkup | undefined => {
-  if (order.status !== 'claimed') {
+  if (order.status !== 'claimed' && order.status !== 'in_progress') {
     return undefined;
   }
 

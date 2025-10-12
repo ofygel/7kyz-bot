@@ -423,7 +423,7 @@ export const tryReleaseOrder = async (
           claimed_at = NULL,
           channel_message_id = NULL,
           updated_at = now()
-      WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
+      WHERE id = $1 AND status = ANY('{claimed,in_progress}'::order_status[]) AND claimed_by = $2
       RETURNING *
     `,
     [id, claimedBy],
@@ -479,7 +479,7 @@ export const tryCompleteOrder = async (
       SET status = 'finished',
           completed_at = now(),
           updated_at = now()
-      WHERE id = $1 AND status = 'claimed' AND claimed_by = $2
+      WHERE id = $1 AND status = ANY('{claimed,in_progress}'::order_status[]) AND claimed_by = $2
       RETURNING *
     `,
     [id, claimedBy],
@@ -620,10 +620,10 @@ export const findActiveOrderForExecutor = async (
 
 export const listExecutorOrders = async (
   executorId: number,
-  statuses: OrderStatus[] = ['open', 'claimed'],
+  statuses: OrderStatus[] = ['claimed', 'in_progress'],
   limit = 20,
 ): Promise<OrderRecord[]> => {
-  const statusFilter = statuses.length > 0 ? statuses : ['open', 'claimed'];
+  const statusFilter = statuses.length > 0 ? statuses : ['claimed', 'in_progress'];
   const params: unknown[] = [executorId, statusFilter];
   if (limit && Number.isFinite(limit) && limit > 0) {
     params.push(Math.trunc(limit));

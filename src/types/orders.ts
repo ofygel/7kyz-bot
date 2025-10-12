@@ -6,6 +6,7 @@ export type OrderStatus =
   | 'new'
   | 'open'
   | 'claimed'
+  | 'in_progress'
   | 'cancelled'
   | 'finished'
   | 'expired';
