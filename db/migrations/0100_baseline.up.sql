@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict adnKAgKfRCgork3Ju7ayaB4uWJq6pAemqejTHWHjEASQqQULh3KnvANAQzfjqyp
+-- Removed psql-specific \restrict directive from dump to keep migration portable.
 
 -- Dumped from database version 16.10 (Ubuntu 16.10-0ubuntu0.24.04.1)
 -- Dumped by pg_dump version 16.10 (Ubuntu 16.10-0ubuntu0.24.04.1)
@@ -1303,5 +1303,5 @@ ALTER TABLE ONLY public.verifications
 -- PostgreSQL database dump complete
 --
 
-\unrestrict adnKAgKfRCgork3Ju7ayaB4uWJq6pAemqejTHWHjEASQqQULh3KnvANAQzfjqyp
+-- Removed psql-specific \unrestrict directive from dump to keep migration portable.
 
