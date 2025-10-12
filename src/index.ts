@@ -20,6 +20,7 @@ import { openApiHandler } from './http/docs';
 import { registerSpaOrderRoutes } from './http/spaOrders';
 import { registerJobs, stopJobs } from './jobs';
 import { initSentry } from './infra/sentry';
+import { buildWebhookConfig } from './utils/webhook';
 
 const gracefulShutdownErrorPatterns = [
   /bot is not running/i,
@@ -68,20 +69,6 @@ const isGracefulShutdownError = (error: unknown): boolean => {
   }
 
   return matchesGracefulShutdownMessage(error.message);
-};
-
-const removeTrailingSlashes = (value: string): string => value.replace(/\/+$/, '');
-
-const buildWebhookConfig = (
-  domain: string,
-  secret: string,
-): { path: string; url: string } => {
-  const trimmedDomain = removeTrailingSlashes(domain);
-  const path = `/bot/${secret}`;
-  return {
-    path,
-    url: `${trimmedDomain}${path}`,
-  };
 };
 
 const parsePort = (value: string | undefined): number => {
