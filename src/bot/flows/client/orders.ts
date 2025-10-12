@@ -115,7 +115,7 @@ const buildControlKeyboard = (
 ): InlineKeyboardMarkup => {
   const rows: { label: string; action: string }[][] = [];
 
-  if (order.status === 'open' || order.status === 'claimed') {
+  if (order.status === 'open' || order.status === 'claimed' || order.status === 'in_progress') {
     if (options.confirmCancellation) {
       rows.push([
         {

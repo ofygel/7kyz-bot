@@ -60,6 +60,7 @@ CREATE TYPE public.order_status AS ENUM (
     'new',
     'open',
     'claimed',
+    'in_progress',
     'cancelled',
     'finished',
     'expired'
@@ -1119,6 +1120,12 @@ CREATE INDEX idx_fsm_journal_scope ON public.fsm_journal USING btree (scope, sco
 --
 
 CREATE INDEX idx_orders_claimed_by ON public.orders USING btree (claimed_by);
+
+--
+-- Name: orders_active_by_executor_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX orders_active_by_executor_idx ON public.orders USING btree (claimed_by) WHERE ((status = ANY (ARRAY['claimed'::public.order_status, 'in_progress'::public.order_status])));
 
 
 --

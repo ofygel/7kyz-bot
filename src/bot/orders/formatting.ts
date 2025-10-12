@@ -119,7 +119,7 @@ export const buildOrderDetailText = (
     lines.push('', `📝 Комментарий: ${order.clientComment.trim()}`);
   }
 
-  if (order.status === 'claimed') {
+  if (order.status === 'claimed' || order.status === 'in_progress') {
     lines.push('');
     lines.push(`👤 Исполнитель: ${formatExecutorLabel(order)}`);
     if (order.executor?.phone?.trim()) {
@@ -133,7 +133,7 @@ export const buildOrderDetailText = (
   if (options.confirmCancellation) {
     lines.push('');
     lines.push('⚠️ Подтвердите отмену заказа. После отмены он станет недоступен исполнителям.');
-    if (order.status === 'claimed') {
+    if (order.status === 'claimed' || order.status === 'in_progress') {
       lines.push('Если исполнитель уже назначен, возможна комиссия.');
     }
   }

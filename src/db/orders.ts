@@ -341,9 +341,11 @@ export const getOrderById = async (id: number): Promise<OrderRecord | null> => {
 export const lockOrderById = async (
   client: PoolClient,
   id: number,
+  options: { skipLocked?: boolean } = {},
 ): Promise<OrderRecord | null> => {
+  const lockingClause = options.skipLocked ? 'FOR UPDATE SKIP LOCKED' : 'FOR UPDATE';
   const { rows } = await client.query<OrderRow>(
-    `SELECT * FROM orders WHERE id = $1 FOR UPDATE`,
+    `SELECT * FROM orders WHERE id = $1 ${lockingClause}`,
     [id],
   );
 
@@ -607,7 +609,7 @@ export const findActiveOrderForExecutor = async (
       SELECT *
       FROM orders
       WHERE claimed_by = $1
-        AND status = 'claimed'
+        AND status = ANY('{claimed,in_progress}'::order_status[])
       ORDER BY claimed_at DESC NULLS LAST, id DESC
       LIMIT 1
     `,
