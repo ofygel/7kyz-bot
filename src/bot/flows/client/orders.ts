@@ -99,7 +99,7 @@ const CLIENT_ORDER_STEP_IDS = [
   CLIENT_ORDER_STATUS_STEP_ID,
 ];
 
-const ACTIVE_ORDER_STATUSES: OrderStatus[] = ['new', 'open', 'claimed'];
+const ACTIVE_ORDER_STATUSES: OrderStatus[] = ['new', 'open', 'claimed', 'in_progress'];
 
 const ORDER_AGAIN_ACTION: Record<OrderWithExecutor['kind'], string> = {
   taxi: CLIENT_TAXI_ORDER_AGAIN_ACTION,
@@ -168,7 +168,7 @@ const renderOrderStatus = async (
   }
 
   const status = formatStatusLabel(order.status);
-  const emoji = order.status === 'claimed' ? '🚗' : '⏳';
+  const emoji = order.status === 'claimed' || order.status === 'in_progress' ? '🚗' : '⏳';
   const { text, reply_markup } = buildStatusMessage(
     emoji,
     `Заказ №${order.shortId}: ${status.full}.`,
@@ -284,6 +284,7 @@ export const renderOrdersList = async (
   const keyboard = buildOrdersListKeyboard(items);
 
   try {
+    await ui.clear(ctx, { ids: CLIENT_ORDERS_LIST_STEP_ID, cleanupOnly: false });
     await ui.step(ctx, {
       id: CLIENT_ORDERS_LIST_STEP_ID,
       text,
