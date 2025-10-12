@@ -1,0 +1,2 @@
+-- Cannot remove values from PostgreSQL enums safely.
+-- This down migration is intentionally left blank.
