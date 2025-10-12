@@ -20,6 +20,7 @@ export const loadSessionCache = async (key: SessionKey): Promise<SessionState | 
       return null;
     }
 
+    await client.expire(formatKey(key), SESSION_TTL);
     return JSON.parse(payload) as SessionState;
   } catch (error) {
     logger.warn({ err: error, cacheKey: formatKey(key) }, 'Failed to load session cache');
@@ -38,6 +39,19 @@ export const saveSessionCache = async (key: SessionKey, state: SessionState): Pr
     await client.set(formatKey(key), payload, 'EX', SESSION_TTL);
   } catch (error) {
     logger.warn({ err: error, cacheKey: formatKey(key) }, 'Failed to save session cache');
+  }
+};
+
+export const refreshSessionCacheTtl = async (key: SessionKey): Promise<void> => {
+  const client = getRedisClient();
+  if (!client) {
+    return;
+  }
+
+  try {
+    await client.expire(formatKey(key), SESSION_TTL);
+  } catch (error) {
+    logger.warn({ err: error, cacheKey: formatKey(key) }, 'Failed to refresh session cache TTL');
   }
 };
 

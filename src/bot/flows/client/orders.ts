@@ -99,7 +99,7 @@ const CLIENT_ORDER_STEP_IDS = [
   CLIENT_ORDER_STATUS_STEP_ID,
 ];
 
-const ACTIVE_ORDER_STATUSES: OrderStatus[] = ['open', 'claimed'];
+const ACTIVE_ORDER_STATUSES: OrderStatus[] = ['new', 'open', 'claimed'];
 
 const ORDER_AGAIN_ACTION: Record<OrderWithExecutor['kind'], string> = {
   taxi: CLIENT_TAXI_ORDER_AGAIN_ACTION,
@@ -133,7 +133,7 @@ const buildControlKeyboard = (
     }
   }
 
-  if (order.status === 'cancelled' || order.status === 'done') {
+  if (order.status === 'cancelled' || order.status === 'finished' || order.status === 'expired') {
     const againAction = ORDER_AGAIN_ACTION[order.kind];
     if (againAction) {
       rows.push([{ label: 'Заказать ещё', action: againAction }]);

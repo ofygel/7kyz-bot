@@ -1,8 +1,0 @@
-BEGIN;
-
-ALTER TABLE channels
-  ADD COLUMN IF NOT EXISTS drivers_channel_id BIGINT,
-  ADD COLUMN IF NOT EXISTS verify_channel_id BIGINT,
-  ADD COLUMN IF NOT EXISTS stats_channel_id BIGINT;
-
-COMMIT;

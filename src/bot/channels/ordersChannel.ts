@@ -15,6 +15,7 @@ import {
   tryReclaimOrder,
   tryReleaseOrder,
   tryRestoreCompletedOrder,
+  markOrderAsOpen,
 } from '../../db/orders';
 import type { OrderKind, OrderRecord, OrderWithExecutor } from '../../types';
 import type { BotContext, ExecutorRole, UserRole } from '../types';
@@ -497,11 +498,11 @@ const formatUserInfo = (info?: UserInfo): string => {
 };
 
 const mapOrderStatus = (order: OrderRecord): OrderChannelStatus => {
-  if (order.status === 'claimed' || order.status === 'done') {
+  if (order.status === 'claimed' || order.status === 'finished') {
     return 'claimed';
   }
 
-  if (order.status === 'cancelled') {
+  if (order.status === 'cancelled' || order.status === 'expired') {
     return 'declined';
   }
 
@@ -656,10 +657,13 @@ export const publishOrderToDriversChannel = async (
   try {
     return await withTx(
       async (client) => {
-        const order = await lockOrderById(client, orderId);
-        if (!order) {
+        const locked = await lockOrderById(client, orderId);
+        if (!locked) {
           throw new Error(`Order ${orderId} not found`);
         }
+
+        const order =
+          locked.status === 'new' ? (await markOrderAsOpen(client, locked.id)) ?? locked : locked;
 
         const messageText = buildOrderChannelMessage(order);
 
@@ -1384,7 +1388,7 @@ const handleUndoOrderCompletion = async (ctx: BotContext, orderId: number): Prom
           return { outcome: 'not_found' } as const;
         }
 
-        if (order.status !== 'done' || order.claimedBy !== executorId) {
+        if (order.status !== 'finished' || order.claimedBy !== executorId) {
           return { outcome: 'invalid', order } as const;
         }
 

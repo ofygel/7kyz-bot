@@ -14,6 +14,7 @@ import { CITY_LABEL } from '../../../domain/cities';
 import { config } from '../../../config';
 import { CITY_ACTION_PATTERN, ensureCitySelected } from '../common/citySelect';
 import { presentRolePick } from '../../commands/start';
+import { EXECUTOR_ACTIVE_ORDERS_ACTION } from './orders';
 import { startExecutorVerification } from './verification';
 import { startExecutorSubscription } from './subscription';
 
@@ -27,7 +28,7 @@ export const EXECUTOR_MENU_CITY_ACTION = 'executorMenu';
 export const EXECUTOR_MENU_TEXT_LABELS = {
   documents: '📸 Документы',
   subscription: '📨 Подписка/Ссылка',
-  orders: '🧾 Заказы',
+  orders: '📋 Активные заказы',
   support: '🆘 Поддержка',
   refresh: '🔄 Меню',
 } as const;
@@ -144,6 +145,7 @@ const SUPPORT_LINK = config.support.url;
 const buildMenuKeyboard = (): InlineKeyboardMarkup =>
   Markup.inlineKeyboard([
     [Markup.button.url('📸 Документы', SUPPORT_LINK)],
+    [Markup.button.callback('📋 Активные заказы', EXECUTOR_ACTIVE_ORDERS_ACTION)],
     [Markup.button.callback('💳 Подписка', EXECUTOR_SUBSCRIPTION_ACTION)],
     [Markup.button.url('🆘 Поддержка', SUPPORT_LINK)],
     [Markup.button.callback('🔄 Обновить меню', EXECUTOR_MENU_ACTION)],
