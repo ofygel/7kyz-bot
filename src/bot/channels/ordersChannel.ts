@@ -687,22 +687,23 @@ export const publishOrderToDriversChannel = async (
           reply_markup: keyboard,
         });
 
-        await setOrderChannelMessageId(client, order.id, message.message_id);
+        const persisted =
+          (await setOrderChannelMessageId(client, order.id, message.message_id)) ?? order;
 
         orderStates.set(order.id, {
           orderId: order.id,
           chatId,
-          messageId: message.message_id,
+          messageId: persisted.channelMessageId ?? message.message_id,
           baseText: messageText,
           status: 'pending',
         });
         clearOrderDismissals(order.id);
 
-        await reportOrderPublished(telegram, order);
+        await reportOrderPublished(telegram, persisted);
 
         return {
           status: 'published',
-          messageId: message.message_id,
+          messageId: persisted.channelMessageId ?? message.message_id,
         } satisfies PublishOrderResult;
       },
       { isolationLevel: 'serializable' },
