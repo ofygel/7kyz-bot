@@ -17,6 +17,33 @@ const CREATE_MIGRATIONS_TABLE_SQL = `
 const CHECK_MIGRATION_SQL = 'SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE file_name = $1) AS exists';
 const RECORD_MIGRATION_SQL = 'INSERT INTO schema_migrations (file_name) VALUES ($1)';
 
+const CHECK_BASELINE_SCHEMA_SQL = `
+  SELECT
+    EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_type t
+      JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+      WHERE n.nspname = 'public'
+        AND t.typname = 'executor_kind'
+    ) AS has_executor_kind,
+    EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = 'users'
+        AND c.relkind = 'r'
+    ) AS has_users_table,
+    EXISTS (
+      SELECT 1
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname = 'orders'
+        AND c.relkind = 'r'
+    ) AS has_orders_table
+`;
+
 let schemaReady = false;
 let bootstrapPromise: Promise<void> | null = null;
 let cachedMigrations: string[] | null = null;
@@ -49,10 +76,27 @@ const loadMigrationSql = async (fileName: string): Promise<string> => {
   return sql;
 };
 
+const recordMigration = async (client: PoolClient, fileName: string): Promise<void> => {
+  await client.query(RECORD_MIGRATION_SQL, [fileName]);
+};
+
 const applyMigration = async (client: PoolClient, fileName: string): Promise<void> => {
   const sql = await loadMigrationSql(fileName);
   await client.query(sql);
-  await client.query(RECORD_MIGRATION_SQL, [fileName]);
+  await recordMigration(client, fileName);
+};
+
+const hasBaselineSchema = async (client: PoolClient): Promise<boolean> => {
+  const { rows } = await client.query<{
+    has_executor_kind: boolean;
+    has_users_table: boolean;
+    has_orders_table: boolean;
+  }>(CHECK_BASELINE_SCHEMA_SQL);
+
+  const baseline = rows[0];
+  return Boolean(
+    baseline?.has_executor_kind && baseline?.has_users_table && baseline?.has_orders_table,
+  );
 };
 
 const ensureSchema = async (): Promise<void> => {
@@ -67,6 +111,15 @@ const ensureSchema = async (): Promise<void> => {
       const exists = rows[0]?.exists ?? false;
 
       if (exists) {
+        continue;
+      }
+
+      if (fileName === REQUIRED_SCHEMA_VERSION && (await hasBaselineSchema(client))) {
+        logger.info(
+          { migration: fileName },
+          'Detected existing baseline schema. Recording migration without reapplying SQL.',
+        );
+        await recordMigration(client, fileName);
         continue;
       }
 
